@@ -1,5 +1,20 @@
 # Cron general de auditoría y campana de avisos
 
+## El panel grande pertenece a su pantalla (2026-11-22)
+
+La chapa pequeña de actividad de la cabecera es global: permite saber desde
+cualquier sitio que el manager tiene trabajo. El panel grande de progreso no
+lo es. Cada una de las tres pantallas de operación real declara su alcance con
+`data-process-monitor` y `process_monitor.js` filtra la respuesta común:
+
+- `dashboard.html` enseña sólo auditorías de portafolios;
+- `accounts.html` enseña sólo el sondeo diario y su archivado;
+- `patrimonio.html` enseña sólo la relectura completa, su archivado y su espera.
+
+Por eso una auditoría puede seguir apareciendo en la chapa de Patrimonio, pero
+nunca ocupa allí el panel grande. Los títulos del panel también nombran el
+alcance visible en vez de llamar «cuentas reales» a una auditoría.
+
 ## Auditoría larga en la última cita semanal (2026-10-26)
 
 El encadenado semanal evita huecos entre cierres, pero el tester de una ventana

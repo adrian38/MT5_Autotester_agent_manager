@@ -4,14 +4,14 @@
 // pero es una línea de doce píxeles al final de una fila de botones: cabe un
 // texto y un porcentaje, no **quién** lo lanzó, desde cuándo, ni un botón. Y lo
 // que se ocupa durante horas son las terminales del agente, así que lo que el
-// usuario necesita saber al abrir cualquiera de las tres pantallas de real es
-// si hay algo dentro de ellas y cómo pararlo (petición del usuario,
-// 2026-11-17).
+// usuario necesita saber en la pantalla dueña del trabajo quién lo lanzó,
+// desde cuándo corre y cómo pararlo.
 //
-// Se monta al principio de `<main>` en las tres pantallas que leen cuentas
-// reales: la portada, Patrimonio y Portafolios activos. Comparte la lectura de
-// `/api/live-audit-activity` con la chapa; no abre una ruta nueva ni pregunta
-// a ningún agente por su cuenta.
+// Se monta al principio de `<main>` en las tres pantallas de real, pero cada
+// una declara su alcance en `data-process-monitor`: el sondeo diario vive en
+// Cuentas en real, la relectura completa en Patrimonio y las auditorías en
+// Portafolios activos. La chapa pequeña de la cabecera sí sigue siendo global.
+// Comparte con ella `/api/live-audit-activity`; no abre una ruta nueva.
 //
 // **Parar es del agente, no del manager.** El manager sólo reenvía: el agente
 // corta entre cuentas o entre fases y sale por su camino de siempre, que
@@ -26,6 +26,7 @@
 (() => {
   const main = document.querySelector('main');
   if (!main) return;
+  const scope = document.body.dataset.processMonitor;
 
   const LIVE_MS = 2000;
   const QUIET_MS = 30000;
@@ -94,18 +95,6 @@
     }));
   }
 
-  function checkRows(state) {
-    return (state.manual_checks || []).map(row => ({
-      node: row.node_name,
-      title: `Comprobación manual · portafolio #${row.portfolio_id}`,
-      phase: row.stage_label || row.status_label || '',
-      percent: Number(row.percent) || 0,
-      detail: `${row.done + 1} de ${row.total}`,
-      started: row.started_at,
-      stop: '',
-    }));
-  }
-
   // El sondeo de la portada y la relectura del patrimonio son la misma tanda
   // en el agente, así que llegan por el mismo sitio; lo que las distingue es
   // quién la pidió, y eso el manager sí lo sabe (`purpose`). Nombrarlas igual
@@ -161,16 +150,29 @@
     }));
   }
 
-  function rowsOf(state) {
-    const activeAccounts = (state.account_snapshots || []).length
-      + (state.manager_account_processing || []).length;
+  function accountRows(state, purpose) {
+    const matches = row => purpose === 'wealth'
+      ? row.purpose === 'wealth'
+      : row.purpose !== 'wealth';
+    const scoped = {
+      ...state,
+      account_snapshots: (state.account_snapshots || []).filter(matches),
+      manager_account_processing: (state.manager_account_processing || []).filter(matches),
+    };
+    const activeAccounts = scoped.account_snapshots.length
+      + scoped.manager_account_processing.length;
     if (activeAccounts) requestedUntil = 0;
     return [
       ...requestedRows(activeAccounts),
-      ...snapshotRows(state), ...managerRows(state), ...auditRows(state),
-      ...checkRows(state), ...waitingRows(state),
-      ...completionRows(activeAccounts),
+      ...snapshotRows(scoped), ...managerRows(scoped),
+      ...(purpose === 'wealth' ? waitingRows(state) : completionRows(activeAccounts)),
     ];
+  }
+
+  function rowsOf(state) {
+    if (scope === 'audits') return auditRows(state);
+    if (scope === 'wealth') return accountRows(state, 'wealth');
+    return accountRows(state, 'accounts');
   }
 
   function rowMarkup(row) {
@@ -254,8 +256,13 @@
   function headMarkup() {
     const pending = stoppable().length;
     const finished = current.length && current.every(row => row.complete);
+    const activeTitle = scope === 'audits'
+      ? 'Auditando portafolios ahora'
+      : scope === 'wealth'
+        ? 'Actualizando patrimonio ahora'
+        : 'Procesando cuentas reales ahora';
     return '<div class="process-monitor-head">'
-      + `<h2 class="process-title">${finished ? 'Proceso terminado' : 'Procesando cuentas reales ahora'}</h2>`
+      + `<h2 class="process-title">${finished ? 'Proceso terminado' : activeTitle}</h2>`
       + (pending
         ? '<button type="button" class="danger process-stop" id="process-stop"'
           + ' title="Cada agente corta en su primer punto seguro, deja cada'

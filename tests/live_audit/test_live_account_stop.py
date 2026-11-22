@@ -102,20 +102,34 @@ class StopRouteTests(unittest.TestCase):
 
 
 class ScreenTests(unittest.TestCase):
-    """El panel vive en las tres pantallas que leen cuentas reales."""
+    """El panel vive en las tres pantallas, limitado al trabajo de cada una."""
 
-    SCREENS = ("accounts.html", "dashboard.html", "patrimonio.html")
+    SCREENS = {
+        "accounts.html": "accounts",
+        "dashboard.html": "audits",
+        "patrimonio.html": "wealth",
+    }
 
     def setUp(self) -> None:
         self.monitor = static_source("process_monitor.js")
 
     def test_the_three_live_screens_load_the_panel(self) -> None:
-        for name in self.SCREENS:
+        for name, scope in self.SCREENS.items():
             with self.subTest(screen=name):
+                source = static_source(name)
                 self.assertIn(
                     '<script src="/process_monitor.js"></script>',
-                    static_source(name),
+                    source,
                 )
+                self.assertIn(f'data-process-monitor="{scope}"', source)
+
+    def test_the_large_panel_only_shows_the_work_owned_by_its_screen(self) -> None:
+        self.assertIn("const scope = document.body.dataset.processMonitor", self.monitor)
+        self.assertIn("if (scope === 'audits') return auditRows(state)", self.monitor)
+        self.assertIn("if (scope === 'wealth') return accountRows(state, 'wealth')", self.monitor)
+        self.assertIn("row.purpose === 'wealth'", self.monitor)
+        self.assertIn("row.purpose !== 'wealth'", self.monitor)
+        self.assertIn("Auditando portafolios ahora", self.monitor)
 
     def test_the_panel_hangs_from_main_and_not_from_the_header(self) -> None:
         """La cabecera ya tenía su chapa: esto es lo que se ve sin buscarlo."""
