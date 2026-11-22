@@ -197,6 +197,10 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   vacía y la auditoría publicó «0 reales» con 50 operaciones en el HTML nativo;
   el lector del informe del terminal como red y por qué sólo salta con la API a
   cero.
+- `lectura_nativa_sin_reintento.md`: tres auditorías muertas en el mismo minuto
+  al exportar el HTML nativo; la ventana del terminal se miraba sin esperar, el
+  reintento sólo cubría la memoria remota y un uso de una sola terminal no
+  tiene dónde recuperarse.
 - `live_audit_not_comparable_20261012.md`: un uso NO COMPARABLE se leía como
   COINCIDE; la caché de ticks incompleta de una terminal, la casilla del
   multiterminal y por qué `completed_at` no es la hora de la ejecución.
