@@ -7,8 +7,8 @@ class _ProcessMixin:
     """Procesos de MT5: cuales corren, como se cierran y como se arrancan.
 
     Lo de abajo del todo del auditor: no sabe de perfiles ni de cuentas, solo
-    de terminal64.exe. Esta aparte porque `live_audit_terminals` pasaba de las
-    600 lineas.
+    de procesos de terminal —`terminal64.exe` de MT5 y `terminal.exe` de MT4—.
+    Esta aparte porque `live_audit_terminals` pasaba de las 600 lineas.
     """
 
     @staticmethod
@@ -30,7 +30,7 @@ class _ProcessMixin:
 
     @staticmethod
     def _terminal_pids() -> set[int]:
-        """Todos los `terminal64.exe` de la máquina, sean de quien sean.
+        """Todas las terminales de la máquina, MT5 y MT4, sean de quien sean.
 
         **No sirve para decidir qué cerrar.** En este equipo corren cuatro
         agentes, así que «los que han aparecido desde que miré» incluye los
@@ -41,13 +41,23 @@ class _ProcessMixin:
         instalación. Esto sólo vale para esperar a que un PID concreto
         desaparezca. Detalle en
         `ai_context/agentes_se_cierran_las_terminales.md`.
+
+        **`terminal.exe` cuenta igual que `terminal64.exe`**, aunque aquí no
+        se mire la ruta: el único consumidor es la espera de
+        `_close_terminal_pids_gracefully`, que intersecta con los PID que le
+        dan. Preguntando sólo por MT5, esa intersección salía vacía para toda
+        terminal MT4 y la espera volvía en la primera vuelta dando el cierre
+        por bueno sin haber comprobado nada, y sin llegar nunca al `/F` que
+        remata a la que ignora el WM_CLOSE.
         """
         if sys.platform != "win32":
             return set()
         completed = subprocess.run(
             [
                 "powershell", "-NoProfile", "-Command",
-                "Get-CimInstance Win32_Process -Filter \"name='terminal64.exe'\" | Select-Object ProcessId | ConvertTo-Json -Compress",
+                "Get-CimInstance Win32_Process -Filter "
+                "\"name='terminal64.exe' OR name='terminal.exe'\" | "
+                "Select-Object ProcessId | ConvertTo-Json -Compress",
             ],
             text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=15,

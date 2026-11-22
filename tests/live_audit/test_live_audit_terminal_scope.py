@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import re
 import sys
 import tempfile
 import unittest
 import unittest.mock
 from pathlib import Path
 
+from mt5_manager.live_audit import live_audit_processes
 from mt5_manager.live_audit.live_audit_engine import LiveAuditController
+from mt5_manager.live_audit.live_audit_processes import _ProcessMixin
 from tests.live_audit.live_audit_engine_base import FakeOwner
 
 MINE = r"C:\Vantage\terminal64.exe"
@@ -76,6 +79,42 @@ class TerminalScopeTests(unittest.TestCase):
             self._login(controller, confirms=False)
 
         self.assertEqual(closed, [{101}])
+
+
+class TerminalCensusTests(unittest.TestCase):
+    """El censo con el que se espera tiene que ver lo mismo que se cierra.
+
+    `_terminal_pids_for_path` pregunta por `terminal64.exe` **y**
+    `terminal.exe` desde que el sondeo del patrimonio lee cuentas MT4, pero
+    `_terminal_pids()` seguía preguntando sólo por MT5. Y `_terminal_pids()`
+    es con lo que `_close_terminal_pids_gracefully` comprueba si el proceso
+    murió: `pids & self._terminal_pids()` salía siempre vacío para un PID de
+    MT4, así que la espera volvía en la primera vuelta dando por cerrado lo
+    que no había comprobado nadie, y no llegaba nunca al `/F` que remata a la
+    terminal que ignora el WM_CLOSE.
+    """
+
+    @staticmethod
+    def _executables(reader) -> set[str]:
+        """Los ejecutables por los que pregunta una de las dos lecturas."""
+        completed = unittest.mock.Mock(returncode=0, stdout="[]")
+        with unittest.mock.patch.object(
+            live_audit_processes.sys, "platform", "win32",
+        ), unittest.mock.patch(
+            "mt5_manager.live_audit.live_audit_core.subprocess.run",
+            return_value=completed,
+        ) as run:
+            reader()
+        return set(re.findall(r"name='([^']+)'", " ".join(run.call_args.args[0])))
+
+    def test_the_wait_asks_for_the_same_terminals_that_the_scoped_reader_returns(self) -> None:
+        census = self._executables(_ProcessMixin._terminal_pids)
+        scoped = self._executables(
+            lambda: _ProcessMixin._terminal_pids_for_path(r"C:\AXI\terminal.exe"),
+        )
+
+        self.assertEqual(census, scoped)
+        self.assertIn("terminal.exe", census)
 
 
 if __name__ == "__main__":
