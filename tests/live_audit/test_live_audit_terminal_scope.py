@@ -81,6 +81,51 @@ class TerminalScopeTests(unittest.TestCase):
         self.assertEqual(closed, [{101}])
 
 
+class ForeignInstallationFallbackTests(unittest.TestCase):
+    """`[Paths] mt5_path` apunta al terminal del vecino, así que no es respaldo.
+
+    En el `ui_settings.ini` de IC y en el de AXI esa clave sigue apuntando a la
+    instalación de RoboForex, resto de la máquina vieja. Era lo que usaba
+    `_terminal_profiles()` cuando el broker del nodo no tiene **ningún** perfil
+    habilitado: el día que alguien deshabilitara el último, el agente abriría
+    la instalación del vecino en vez de fallar. `agent_terminals()` ya lo
+    rechazaba por su cuenta y decía por qué.
+    """
+
+    @staticmethod
+    def _controller(root: Path, neighbour: Path, mine: Path) -> LiveAuditController:
+        (root / "ui_settings.ini").write_text(
+            "[Paths]\nmt5_path=" + str(neighbour) + "\n"
+            "[Terminal.1]\nname=Vecino\nenabled=1\nbroker=ROBOFOREX\nmt5_path="
+            + str(neighbour) + "\n"
+            "[Terminal.2]\nname=Mia\nenabled=0\nbroker=VANTAGE\nmt5_path="
+            + str(mine) + "\n",
+            encoding="utf-8",
+        )
+        owner = FakeOwner("idle")
+        owner.config.update(
+            project_dir=str(root), settings_file="ui_settings.ini", broker="VANTAGE",
+        )
+        return LiveAuditController(owner, root / "runtime")
+
+    def test_without_a_profile_of_its_own_it_fails_instead_of_opening_the_neighbour(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            neighbour, mine = root / "robo" / "terminal64.exe", root / "vtg" / "terminal64.exe"
+            for path in (neighbour, mine):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.touch()
+            controller = self._controller(root, neighbour, mine)
+            with self.assertRaises(ValueError) as raised:
+                controller._terminal_profiles()
+            # Una deshabilitada **suya** sigue mandando sobre el vecino.
+            with_disabled = controller._terminal_profiles(include_disabled=True)
+
+        self.assertIn("VANTAGE", str(raised.exception))
+        self.assertNotIn(str(neighbour), str(raised.exception))
+        self.assertEqual([profile[1]["name"] for profile in with_disabled], ["Mia"])
+
+
 class TerminalCensusTests(unittest.TestCase):
     """El censo con el que se espera tiene que ver lo mismo que se cierra.
 

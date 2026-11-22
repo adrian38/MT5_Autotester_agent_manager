@@ -140,11 +140,17 @@ no deja que una vuelva a adelantar a la otra.
 
 ## Lo que queda abierto
 
-- **`[Paths] mt5_path` sigue apuntando a RoboForex en IC y en AXI.** Es el
-  respaldo que usa `_terminal_profiles()` cuando el broker del nodo no tiene
-  **ningún** perfil habilitado, así que hoy no se ejecuta; el día que alguien
-  deshabilite el último perfil, el agente abriría la instalación del vecino en
-  vez de fallar. `agent_terminals()` ya lo rechaza por su cuenta.
+- ~~**`[Paths] mt5_path` sigue apuntando a RoboForex en IC y en AXI.**~~
+  **Cerrado el 2026-11-22.** Dos correcciones sobre lo que decía esta línea.
+  Una, la clave ya no apunta ahí: en IC y en AXI está **vacía** (se vaciaron
+  junto con el `[Terminal.1]` de RoboForex), y en RoboForex y en Vantage apunta
+  a la instalación propia, que es la suya. Dos, el respaldo ya no existe:
+  `_terminal_profiles()` falla en vez de caer en esa clave, como
+  `agent_terminals()`. Comprobado antes de cerrarlo que los cuatro agentes
+  tienen exactamente un `[Terminal.N]` de su broker habilitado y con el
+  ejecutable en su sitio, así que el cambio no altera a ninguno hoy: IC
+  `Terminal.2`, AXI `Terminal.9`, RoboForex `Terminal.2`, Vantage
+  `Terminal.1`.
 - **Sigue sin haber plan B con una sola terminal.** Si la terminal muere a
   mitad de la exportación, los dos intentos siguientes se gastan esperando una
   ventana que no puede volver: nadie la relanza. Eso no lo arregla este cambio.

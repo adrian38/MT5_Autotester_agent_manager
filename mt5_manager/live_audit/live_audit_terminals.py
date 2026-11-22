@@ -20,7 +20,8 @@ class _TerminalMixin(_ProcessMixin):
         parser = configparser.ConfigParser(interpolation=None)
         parser.read(self._settings_path(), encoding="utf-8")
         profiles: list[tuple[str, dict[str, str]]] = []
-        active_broker = str(self.owner.config.get("broker") or "ICTRADING").strip().casefold()
+        broker = str(self.owner.config.get("broker") or "ICTRADING").strip()
+        active_broker = broker.casefold()
         for section in parser.sections():
             if not section.casefold().startswith("terminal."):
                 continue
@@ -35,10 +36,17 @@ class _TerminalMixin(_ProcessMixin):
                 profiles.append((section, profile))
         if profiles:
             return self._principal_terminal_only(parser, profiles)
-        path = Path(parser.get("Paths", "mt5_path", fallback="").strip())
-        if path.is_file():
-            return [("Terminal.1", {"enabled": "1", "mt5_path": str(path)})]
-        raise ValueError("No hay una ruta terminal64.exe habilitada en ICTrading")
+        # `[Paths] mt5_path` **no** vale como respaldo: es una ruta suelta que
+        # nadie ata al broker del nodo. En IC y en AXI apuntaba al terminal de
+        # RoboForex, de otro agente de esta misma máquina, hasta que se
+        # vaciaron el 2026-11-22. Hoy los cuatro tienen un perfil propio
+        # habilitado, así que esto no se ejecutaba; el día que alguien
+        # deshabilitara el último, abriría la instalación del vecino en vez de
+        # fallar. `agent_terminals()` ya lo rechazaba: el criterio es el mismo.
+        raise ValueError(
+            f"Ninguna terminal de {broker} habilitada en ui_settings.ini apunta "
+            "a un terminal64.exe que exista"
+        )
 
     def _principal_terminal_only(
         self, parser: Any, profiles: list[tuple[str, dict[str, str]]],
