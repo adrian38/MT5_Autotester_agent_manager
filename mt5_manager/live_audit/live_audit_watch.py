@@ -284,11 +284,11 @@ def record_transitions(
 def _launch_payload(
     server: Any, node_id: str, audit_id: str, profile: dict[str, Any],
     audit: dict[str, Any], now: datetime, period: dict[str, str] | None = None,
-    full_audit: bool = False,
 ) -> tuple[dict[str, Any], dict[str, str], dict[str, str]]:
     """Payload del nodo y periodos separados para describir su origen real.
     El criterio del manager no viaja y el cron pisa la opción multiterminal del
-    uso, que pertenece al botón manual «Auditar ahora».
+    uso, que pertenece al botón manual «Auditar ahora». La auditoría larga
+    llega ya compuesta en `period`: quien distingue su origen es `_period_text`.
     """
     node_profile = {
         key: value for key, value in profile.items()
@@ -297,8 +297,7 @@ def _launch_payload(
     inherited_end, created_at = live_audit_lineage.audit_period_bounds(
         server, node_id, profile,
     )
-    complete = period if full_audit else {}
-    chained = period or complete or live_audit_schedule.chained_period(
+    chained = period or live_audit_schedule.chained_period(
         server.live_audit_scheduler_settings, audit, now, inherited_end, created_at,
     )
     # `chained` llega vacio ({}) cuando no hay auditoria anterior ni heredada
@@ -368,7 +367,7 @@ def launch(
         base["full_period_end"] = context["period"].get("period_end_date")
     payload, chained, floored = _launch_payload(
         server, node_id, audit_id, profile, context["audit"], context["now"],
-        context.get("period"), bool(context.get("full_audit")),
+        context.get("period"),
     )
     restore_fields = ("restore_login", "restore_server", "restore_password")
     if not all(payload.get(field) for field in restore_fields) or not payload["portfolio_id"]:
