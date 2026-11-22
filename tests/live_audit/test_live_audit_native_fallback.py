@@ -96,6 +96,71 @@ class FakeMt5:
         self.shutdown_called = True
 
 
+class IsolatedReportDestinationTests(unittest.TestCase):
+    """El plan B en otra terminal chocaba con lo que dejó el intento fallido.
+
+    `_export_isolated_native_report` reutiliza el mismo destino, y
+    `_save_report` empieza por rechazar un destino ocupado. Los fallos que
+    dejan fichero son justo los que más piden otra terminal:
+    `validate_native_history_report` rechaza el informe de otra cuenta
+    **después** de que MT5 lo haya escrito. Cada respaldo hacía la pasada
+    entera por la GUI para morir con «el destino ya existe», que además tapaba
+    la causa real en la lista de errores.
+    """
+
+    @staticmethod
+    def _controller(root: Path) -> LiveAuditController:
+        controller = LiveAuditController(FakeOwner("idle"), root)
+        controller._native_report_profiles = lambda _excluded: [
+            ("Terminal.2", {"name": "MT5 respaldo", "mt5_path": r"C:\IC\2\terminal64.exe"}),
+        ]
+        controller._terminal_pids_for_path = lambda _path: set()
+        controller._close_terminal_pids = lambda _pids: None
+        controller._remember_real_account_terminal = lambda *_args: None
+        controller._synchronised_history = lambda *_args: ([], {})
+        return controller
+
+    def test_the_report_rejected_by_the_first_terminal_does_not_block_the_backup(self) -> None:
+        exported: list[Path] = []
+
+        def exporting(**kwargs) -> dict[str, object]:
+            destination = Path(kwargs["destination"])
+            if destination.exists():
+                raise NativeHistoryReportError(
+                    f"El destino del reporte MT5 ya existe: {destination.name}"
+                )
+            exported.append(destination)
+            destination.write_text("informe de la cuenta buena", encoding="utf-8")
+            return {"native_terminal_report": True}
+
+        with tempfile.TemporaryDirectory() as folder:
+            destination = Path(folder) / "real.html"
+            destination.write_text("informe de la cuenta equivocada", encoding="utf-8")
+            controller = self._controller(Path(folder))
+            mt5 = FakeMt5()
+            mt5.initialize = lambda **_kwargs: True
+            with mock.patch(
+                "mt5_manager.live_audit.live_audit_extraction.export_native_history_report",
+                side_effect=exporting,
+            ):
+                metadata = controller._export_isolated_native_report(
+                    mt5=mt5, request={"audit_key": "audit-1", "source_password": "clave"},
+                    excluded_path=Path(r"C:\IC\1\terminal64.exe"), login="111",
+                    server="IC-Real", period_start=PERIOD_START, period_end=PERIOD_END,
+                    destination=destination,
+                    primary_error=NativeHistoryReportError(
+                        "El reporte MT5 no corresponde a la cuenta auditada"
+                    ),
+                    profile_name="MT5 principal",
+                )
+            written = destination.read_text(encoding="utf-8")
+
+        self.assertEqual(exported, [destination])
+        self.assertTrue(metadata["isolated_capture_terminal"])
+        self.assertEqual(metadata["capture_terminal_profile"], "MT5 respaldo")
+        self.assertEqual(written, "informe de la cuenta buena")
+
+
 class NativeReportFallbackTests(LiveAuditEngineTestCase):
     def test_a_failed_remote_allocation_has_a_readable_error(self) -> None:
         exporter = _WindowsTerminalReportExporter.__new__(_WindowsTerminalReportExporter)

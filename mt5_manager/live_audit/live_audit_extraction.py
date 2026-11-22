@@ -241,6 +241,27 @@ class _ExtractionMixin:
             for symbol in {str(trade["symbol"]) for trade in trades}
         }
 
+    @staticmethod
+    def _discard_rejected_report(destination: Path) -> None:
+        """Quita el HTML que dejó el intento anterior antes de volver a pedirlo.
+
+        `_save_report` empieza por rechazar un destino ocupado, y el intento
+        que falla **deja fichero** justo en los casos que más piden otra
+        terminal: `validate_native_history_report` rechaza el informe de otra
+        cuenta o sin la firma del terminal **después** de que MT5 lo haya
+        escrito. Sin esta limpieza, cada terminal de respaldo hacía la pasada
+        entera por la GUI —abrir el Custom period, fijar las fechas, dejar la
+        pestaña History cambiada— para morir al final con «el destino ya
+        existe», que además tapaba la causa real en la lista de errores.
+
+        Lo que se borra es un informe ya rechazado: el motivo viaja en
+        `primary_error`, que encabeza esa lista y queda encadenado al fallo.
+        """
+        try:
+            destination.unlink(missing_ok=True)
+        except OSError:
+            pass
+
     def _export_isolated_native_report(
         self, *, mt5: Any, request: dict[str, Any], excluded_path: Path,
         login: str, server: str, period_start: datetime, period_end: datetime,
@@ -252,6 +273,7 @@ class _ExtractionMixin:
             path = Path(str(profile.get("mt5_path") or ""))
             before = self._terminal_pids_for_path(str(path))
             launched: set[int] = set()
+            self._discard_rejected_report(destination)
             try:
                 if not mt5.initialize(
                     path=str(path), login=int(login), password=request["source_password"],
