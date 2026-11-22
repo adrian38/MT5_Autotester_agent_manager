@@ -201,6 +201,10 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   al exportar el HTML nativo; la ventana del terminal se miraba sin esperar, el
   reintento sólo cubría la memoria remota y un uso de una sola terminal no
   tiene dónde recuperarse.
+- `agentes_se_cierran_las_terminales.md`: por qué la ventana no estaba: el
+  agente de RoboForex cerraba la terminal del de Vantage, porque
+  `_terminal_pids()` es de toda la máquina; la prueba con los dos Journals y el
+  acotado por ruta de instalación.
 - `live_audit_not_comparable_20261012.md`: un uso NO COMPARABLE se leía como
   COINCIDE; la caché de ticks incompleta de una terminal, la casilla del
   multiterminal y por qué `completed_at` no es la hora de la ejecución.

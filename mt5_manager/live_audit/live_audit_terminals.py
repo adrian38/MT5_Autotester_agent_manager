@@ -325,6 +325,11 @@ class _TerminalMixin(_ProcessMixin):
         `remember_for` marca los logins de la cuenta **real**: cada terminal que
         acepta esas credenciales queda anotado para devolverlo después a la
         cuenta de pruebas.
+
+        Los PID que devuelve son los de **esta** instalación, no los de la
+        máquina: en este equipo corren cuatro agentes y el que cerraba «lo
+        aparecido desde que miré» se llevaba por delante la terminal del
+        vecino. Ver `ai_context/agentes_se_cierran_las_terminales.md`.
         """
         try:
             import MetaTrader5 as mt5
@@ -340,11 +345,11 @@ class _TerminalMixin(_ProcessMixin):
         )
         for section, profile in profiles:
             path = str(profile.get("mt5_path") or "")
-            before = self._terminal_pids()
+            before = self._terminal_pids_for_path(path)
             if not mt5.initialize(path=path, login=int(login), password=password, server=server, timeout=60000):
                 errors.append(f"{Path(path).parent.name}: {mt5.last_error()}")
                 mt5.shutdown()
-                self._close_terminal_pids(self._terminal_pids() - before)
+                self._close_terminal_pids(self._terminal_pids_for_path(path) - before)
                 continue
             # El terminal aceptó las credenciales: desde aquí su cuenta guardada
             # ya cambió, tanto si el login se confirma como si no.
@@ -354,13 +359,13 @@ class _TerminalMixin(_ProcessMixin):
                 mt5, str(login), password, server, self.tester_login_settle_seconds,
             )
             if not switch_error and actual_login == str(login):
-                return mt5, section, profile, self._terminal_pids() - before
+                return mt5, section, profile, self._terminal_pids_for_path(path) - before
             errors.append(
                 f"{Path(path).parent.name}: "
                 + (switch_error or "el terminal no confirmó el login")
             )
             mt5.shutdown()
-            self._close_terminal_pids(self._terminal_pids() - before)
+            self._close_terminal_pids(self._terminal_pids_for_path(path) - before)
         raise RuntimeError("No se pudo iniciar sesión en ninguna terminal configurada: " + " | ".join(errors))
 
     @staticmethod
@@ -538,7 +543,7 @@ class _TerminalMixin(_ProcessMixin):
         for section, profile in profiles:
             name = str(profile.get("name") or section)
             path = str(profile.get("mt5_path") or "")
-            before = self._terminal_pids()
+            before = self._terminal_pids_for_path(path)
             launched: set[int] = set()
             row: dict[str, Any] = {
                 "section": section, "terminal": name, "login": None, "server": None,
@@ -551,7 +556,7 @@ class _TerminalMixin(_ProcessMixin):
                 ):
                     row["error"] = f"MT5 rechazó la cuenta tester: {mt5.last_error()}"
                 else:
-                    launched = self._terminal_pids() - before
+                    launched = self._terminal_pids_for_path(path) - before
                     actual_login, actual_server, connected, switch_error = self._activate_account(
                         mt5, login, request["tester_password"], server,
                         self.tester_login_settle_seconds,
@@ -576,7 +581,7 @@ class _TerminalMixin(_ProcessMixin):
                     mt5.shutdown()
                 except Exception:
                     pass
-                self._close_terminal_pids_gracefully(launched or (self._terminal_pids() - before))
+                self._close_terminal_pids_gracefully(launched or (self._terminal_pids_for_path(path) - before))
             rows.append(row)
             if not row["verified"]:
                 failures.append(f"{name}: {row['error'] or 'sin confirmación'}")

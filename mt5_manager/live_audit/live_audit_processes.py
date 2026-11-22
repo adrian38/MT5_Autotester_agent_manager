@@ -30,6 +30,18 @@ class _ProcessMixin:
 
     @staticmethod
     def _terminal_pids() -> set[int]:
+        """Todos los `terminal64.exe` de la máquina, sean de quien sean.
+
+        **No sirve para decidir qué cerrar.** En este equipo corren cuatro
+        agentes, así que «los que han aparecido desde que miré» incluye los
+        del vecino: el 2026-11-22 el agente de RoboForex cerró con esto la
+        terminal que el de Vantage estaba usando para exportar, y la
+        auditoría del portafolio #2 murió buscando una ventana de un proceso
+        ya muerto. Para eso está `_terminal_pids_for_path`, que acota a una
+        instalación. Esto sólo vale para esperar a que un PID concreto
+        desaparezca. Detalle en
+        `ai_context/agentes_se_cierran_las_terminales.md`.
+        """
         if sys.platform != "win32":
             return set()
         completed = subprocess.run(

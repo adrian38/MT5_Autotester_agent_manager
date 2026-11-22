@@ -250,7 +250,7 @@ class _ExtractionMixin:
         errors = [f"{profile_name}: {primary_error}"]
         for section, profile in self._native_report_profiles(excluded_path):
             path = Path(str(profile.get("mt5_path") or ""))
-            before = self._terminal_pids()
+            before = self._terminal_pids_for_path(str(path))
             launched: set[int] = set()
             try:
                 if not mt5.initialize(
@@ -259,7 +259,7 @@ class _ExtractionMixin:
                 ):
                     errors.append(f"{profile.get('name') or section}: {mt5.last_error()}")
                     continue
-                launched = self._terminal_pids() - before
+                launched = self._terminal_pids_for_path(str(path)) - before
                 self._remember_real_account_terminal(str(request["audit_key"]), section, profile)
                 info, terminal = mt5.account_info(), mt5.terminal_info()
                 if (
@@ -281,7 +281,7 @@ class _ExtractionMixin:
                 errors.append(f"{profile.get('name') or section}: {exc}")
             finally:
                 mt5.shutdown()
-                self._close_terminal_pids(launched or (self._terminal_pids() - before))
+                self._close_terminal_pids(launched or (self._terminal_pids_for_path(str(path)) - before))
         raise NativeHistoryReportError(
             (
                 "No se pudo obtener el HTML nativo y el uso corre con una sola "

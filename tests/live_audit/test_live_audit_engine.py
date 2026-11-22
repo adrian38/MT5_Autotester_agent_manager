@@ -492,7 +492,7 @@ class LiveAuditEngineTests(LiveAuditEngineTestCase):
             def shutdown() -> None:
                 pass
 
-        controller._terminal_pids = lambda: set()
+        controller._terminal_pids_for_path = lambda _path: set()
         controller._close_terminal_pids_gracefully = closed.append
         profiles = [
             ("Terminal.2", {"name": "MT5_IC_1", "mt5_path": r"C:\IC1\terminal64.exe"}),
