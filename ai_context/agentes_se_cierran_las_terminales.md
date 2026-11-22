@@ -107,6 +107,37 @@ IC y de AXI era un resto de la máquina vieja, invisible y sin uso. Se borró el
 2026-11-22 a petición del usuario; esos ficheros están en `.gitignore`, así que
 no hay commit que lo registre.
 
+## El censo que quedó tenía un punto ciego: MT4 (2026-11-22, más tarde)
+
+Al auditar el arreglo salió que `_terminal_pids()` no servía ni para lo único
+que se le dejó. `_close_terminal_pids_gracefully` lo usa para saber si el
+proceso murió:
+
+```python
+remaining = pids & self._terminal_pids()
+if not remaining:
+    return
+```
+
+Pero preguntaba sólo por `terminal64.exe`, y el sondeo del patrimonio cierra
+terminales **MT4**, que son `terminal.exe`. `_terminal_pids_for_path` sí
+pregunta por los dos desde que existe ese sondeo (`b59552d`); el censo se
+quedó atrás. Con un PID de MT4 la intersección salía vacía **siempre**, así
+que la espera volvía en la primera vuelta dando el cierre por bueno sin haber
+comprobado nada, y no llegaba nunca al `/F` que remata a la terminal que
+ignora el WM_CLOSE.
+
+Es el mismo patrón que esta nota ya cuenta: una guarda que se debilita en
+silencio al cambiar lo que mira, no al romperse. Y el daño es el de antes
+multiplicado, porque en `_launch` justo después se arranca otra instancia de
+la misma instalación y la exportación se encuentra con dos ventanas.
+
+Arreglado ensanchando el censo a los dos ejecutables, que aquí es seguro: su
+único consumidor intersecta con los PID que le dan, así que nunca cierra de
+más. La guarda nueva ata las dos lecturas —la espera tiene que preguntar por
+los mismos ejecutables que puede devolver la lectura por ruta—, que es lo que
+no deja que una vuelva a adelantar a la otra.
+
 ## Lo que queda abierto
 
 - **`[Paths] mt5_path` sigue apuntando a RoboForex en IC y en AXI.** Es el
