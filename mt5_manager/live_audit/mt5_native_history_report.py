@@ -26,6 +26,14 @@ PERIOD_COMBO_ID = 10212
 FROM_DATE_ID = 10119
 TO_DATE_ID = 10110
 
+_EXPORT_ATTEMPTS = 3
+_RETRY_PAUSE_SECONDS = 1.0
+"""Tres pasadas por la GUI del terminal, con un respiro entre ellas.
+
+Cada intento ya espera por dentro lo suyo —`timeout` por paso—, así que tres
+son el techo razonable antes de devolver el fallo al auditor, que tiene sus
+propios reintentos de diez minutos."""
+
 
 class _TCItemW(ctypes.Structure):
     _fields_ = [
@@ -68,7 +76,8 @@ def validate_native_history_report(path: Path, login: str) -> dict[str, object]:
 
 
 class _WindowsTerminalReportExporter(_WindowsAutomation):
-    def _terminal_window(self) -> tuple[int, int]:
+    def _terminal_candidates(self) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
+        """Las ventanas de este terminal: todas y las que ya llevan la cuenta."""
         path_candidates: list[tuple[int, int]] = []
         titled_candidates: list[tuple[int, int]] = []
         for hwnd in self._top_windows():
@@ -82,15 +91,45 @@ class _WindowsTerminalReportExporter(_WindowsAutomation):
             title = self._window_text(hwnd).casefold()
             if self.login in title and (not self.server or self.server.casefold() in title):
                 titled_candidates.append((hwnd, pid.value))
-        if len(titled_candidates) == 1:
-            return titled_candidates[0]
-        if len(path_candidates) == 1:
-            return path_candidates[0]
-        if len(path_candidates) != 1:
-            raise NativeHistoryReportError(
-                f"No se identificó de forma unívoca la ventana MT5 de {self.login} en {self.server}"
-            )
-        return path_candidates[0]
+        return path_candidates, titled_candidates
+
+    def _window_census(self, windows: list[tuple[int, int]]) -> str:
+        """Lo que se vio en la última vuelta: ninguna ventana y dos no son lo mismo.
+
+        Sin esto el error decía sólo que no era unívoca, que es justo lo que no
+        hace falta saber: un terminal cerrado y dos instancias del mismo
+        ejecutable se arreglan de maneras distintas.
+        """
+        if not windows:
+            return "el terminal no tenía ninguna ventana abierta"
+        titles = " | ".join(repr(self._window_text(hwnd)) for hwnd, _pid in windows)
+        return f"{len(windows)} ventanas del mismo terminal: {titles}"
+
+    def _terminal_window(self) -> tuple[int, int]:
+        """La ventana del terminal, esperando a que MT5 la deje identificar.
+
+        Era una foto instantánea, el único paso de la exportación que no
+        esperaba. Un terminal recién arrancado, o que acaba de cambiar de
+        login, tarda en titular su ventana, y durante el cambio puede haber dos
+        instancias del mismo ejecutable; con una sola de las dos condiciones ya
+        no hay candidata única. El 2026-11-22 esa foto tumbó tres auditorías a
+        la vez. La exportación de MT4 ya espera así.
+        """
+        windows: list[tuple[int, int]] = []
+        deadline = time.monotonic() + self.timeout
+        while True:
+            windows, titled = self._terminal_candidates()
+            if len(titled) == 1:
+                return titled[0]
+            if len(windows) == 1:
+                return windows[0]
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.2)
+        raise NativeHistoryReportError(
+            f"No se identificó de forma unívoca la ventana MT5 de {self.login} "
+            f"en {self.server}: {self._window_census(windows)}"
+        )
 
     def _tab_text(self, process: int, tab: int, index: int) -> str:
         text_size = 256 * ctypes.sizeof(ctypes.c_wchar)
@@ -388,12 +427,25 @@ def export_native_history_report(
     period_start: datetime, period_end: datetime, destination: Path,
     timeout: float = 20.0,
 ) -> dict[str, object]:
-    """Guarda el Report/HTML original del History de MT5 en Custom period."""
-    for attempt in range(3):
+    """Guarda el Report/HTML original del History de MT5 en Custom period.
+
+    Reintenta mientras el intento no haya dejado fichero en el destino. Lo que
+    falla antes de guardar es la automatización de la GUI —una ventana que
+    todavía no estaba, un selector que no abrió, memoria remota que no se
+    reservó—, y antes sólo se reintentaba lo último: un uso de una sola
+    terminal no tiene otra donde recuperarse, así que cualquiera de los otros
+    tropiezos costaba la auditoría entera y diez minutos hasta el siguiente
+    turno del cron.
+
+    En cuanto hay fichero no se repite: ahí el error ya habla del informe
+    guardado, y un segundo intento sólo chocaría con el destino ocupado.
+    """
+    destination = Path(destination)
+    for attempt in range(_EXPORT_ATTEMPTS):
         try:
             exporter = _WindowsTerminalReportExporter(terminal_path, login, server, timeout)
             return exporter.export(period_start, period_end, destination)
-        except _RemoteAllocationError:
-            if attempt == 2:
+        except NativeHistoryReportError:
+            if attempt == _EXPORT_ATTEMPTS - 1 or destination.exists():
                 raise
-            time.sleep(0.2)
+            time.sleep(_RETRY_PAUSE_SECONDS)

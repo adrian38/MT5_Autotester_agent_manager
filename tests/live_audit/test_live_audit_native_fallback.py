@@ -123,6 +123,73 @@ class NativeReportFallbackTests(LiveAuditEngineTestCase):
         self.assertTrue(result["native_terminal_report"])
         self.assertEqual(exporter.call_count, 2)
 
+    def _export(self, destination: Path) -> dict:
+        return export_native_history_report(
+            terminal_path=Path("terminal64.exe"), login="1", server="Broker",
+            period_start=PERIOD_START, period_end=PERIOD_END, destination=destination,
+        )
+
+    def test_a_gui_stumble_without_report_gets_another_pass(self) -> None:
+        """El 2026-11-22 tres auditorías murieron por un tropiezo de la GUI.
+
+        «MT5 no abrió el selector Custom period» y «no se identificó de forma
+        unívoca la ventana» salían a la primera, y un uso de una sola terminal
+        no tiene otra donde recuperarse: sólo se reintentaba la reserva de
+        memoria remota.
+        """
+        failed, recovered = mock.Mock(), mock.Mock()
+        failed.export.side_effect = NativeHistoryReportError("MT5 no abrió el selector Custom period")
+        recovered.export.return_value = {"native_terminal_report": True}
+        with tempfile.TemporaryDirectory() as folder, mock.patch(
+            "mt5_manager.live_audit.mt5_native_history_report._WindowsTerminalReportExporter",
+            side_effect=(failed, recovered),
+        ) as exporter, mock.patch("mt5_manager.live_audit.mt5_native_history_report.time.sleep"):
+            result = self._export(Path(folder) / "report.html")
+        self.assertTrue(result["native_terminal_report"])
+        self.assertEqual(exporter.call_count, 2)
+
+    def test_a_failure_that_already_wrote_the_report_is_not_repeated(self) -> None:
+        """Con fichero en el destino, repetir sólo cambiaría el error por «ya existe»."""
+        failed = mock.Mock()
+        failed.export.side_effect = NativeHistoryReportError(
+            "El reporte MT5 no corresponde a la cuenta auditada"
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            destination = Path(folder) / "report.html"
+            destination.write_text("informe a medias", encoding="utf-8")
+            with mock.patch(
+                "mt5_manager.live_audit.mt5_native_history_report._WindowsTerminalReportExporter",
+                side_effect=(failed, failed, failed),
+            ) as exporter, self.assertRaisesRegex(NativeHistoryReportError, "no corresponde"):
+                self._export(destination)
+        self.assertEqual(exporter.call_count, 1)
+
+    @staticmethod
+    def _window_exporter(timeout: float) -> _WindowsTerminalReportExporter:
+        exporter = _WindowsTerminalReportExporter.__new__(_WindowsTerminalReportExporter)
+        exporter.login, exporter.server, exporter.timeout = "1", "Broker", timeout
+        return exporter
+
+    def test_the_terminal_window_is_awaited_instead_of_photographed(self) -> None:
+        """Era el único paso de la exportación que no esperaba a MT5."""
+        exporter = self._window_exporter(1.0)
+        rounds = [([], []), ([], []), ([(5, 7)], [])]
+        exporter._terminal_candidates = lambda: rounds.pop(0)
+        with mock.patch("mt5_manager.live_audit.mt5_native_history_report.time.sleep"):
+            self.assertEqual(exporter._terminal_window(), (5, 7))
+        self.assertEqual(rounds, [])
+
+    def test_the_error_tells_no_window_from_two(self) -> None:
+        """Un terminal cerrado y dos instancias no se arreglan igual."""
+        exporter = self._window_exporter(0.0)
+        exporter._terminal_candidates = lambda: ([], [])
+        with self.assertRaisesRegex(NativeHistoryReportError, "ninguna ventana abierta"):
+            exporter._terminal_window()
+        exporter._terminal_candidates = lambda: ([(1, 10), (2, 20)], [])
+        exporter._window_text = lambda hwnd: f"ventana {hwnd}"
+        with self.assertRaisesRegex(NativeHistoryReportError, "2 ventanas del mismo terminal"):
+            exporter._terminal_window()
+
     def _extract(self, folder: Path, mt5: FakeMt5, report: str | None = NATIVE_REPORT):
         controller = LiveAuditController(FakeOwner("idle"), folder)
         controller.history_sync_attempts = 2
