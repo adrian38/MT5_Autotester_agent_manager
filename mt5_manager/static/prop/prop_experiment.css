@@ -38,6 +38,15 @@ input[readonly] { color: var(--lime); font-weight: 800; }
 .node input, .source-options input, .symbol-families input { width: auto; }
 .node small { color: var(--muted); }
 .node.excluded { opacity: .45; }
+.broker-symbol-controls { display: grid; gap: 8px; margin-top: 10px; }
+.broker-symbol-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #08110f; }
+.broker-symbol-card strong { color: var(--ink); }
+.broker-symbol-card small { color: var(--muted); }
+.broker-symbol-card select { grid-column: 1; padding: 7px 9px; }
+.broker-symbol-card button { grid-column: 2; grid-row: 1/3; align-self: stretch; }
+.broker-disabled { color: var(--amber); }
+.prop-symbol-dialog fieldset { margin: 0 0 14px; border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.prop-symbol-dialog legend { padding: 0 7px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
 .symbol-families { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
 .symbol-families label:has(input:checked) { border-color: #5c8c3e; background: #1a301f; }
 .source-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }

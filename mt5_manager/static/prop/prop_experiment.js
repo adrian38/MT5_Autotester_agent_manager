@@ -2,6 +2,10 @@ const api = "/api/prop-experiment/";
 const numeric = ["bankroll_eur"];
 const switches = ["include_candidates","include_seeds","include_manual_portfolios","active_portfolios_only"];
 let config = null;
+let brokerStates = new Map();
+let managedBrokerNode = "";
+let managedSymbol = "";
+let managedSymbolSets = [];
 
 const esc = value => String(value ?? "").replace(/[&<>'"]/g, character => ({
   "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;",
@@ -16,6 +20,32 @@ async function request(path, options={}) {
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.error || "Error del manager");
   return payload;
+}
+
+function toast(message, error=false) {
+  const target = document.querySelector("#toast");
+  target.textContent = message;
+  target.className = error ? "show error" : "show";
+  setTimeout(() => { target.className = ""; }, 5000);
+}
+
+async function portfolioRequest(nodeId, action="", payload=null) {
+  const suffix = action ? `/${action}` : "?scope=full_history";
+  const options = payload === null ? {cache:"no-store"} : {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({scope:"full_history", ...payload}),
+  };
+  const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager${suffix}`, options);
+  const text = await response.text();
+  let data;
+  try { data = text ? JSON.parse(text) : {}; } catch { data = {error:text || response.statusText}; }
+  if (!response.ok) throw new Error(data.error || response.statusText);
+  return data;
+}
+
+async function postManager(action, payload) {
+  if (!managedBrokerNode) throw new Error("No hay un broker seleccionado");
+  return portfolioRequest(managedBrokerNode, action, payload);
 }
 
 function selectedProfile() {
@@ -88,6 +118,113 @@ function renderConfig(data) {
   fillForm(data.settings);
   renderState(data.state);
   markLoaded();
+  loadBrokerControls();
+}
+
+function brokerCard(node, state) {
+  if (state.error) {
+    return `<article class="broker-symbol-card"><span><strong>${esc(node.name)}</strong><br><small class="error-text">${esc(state.error)}</small></span><button type="button" class="secondary" data-reload-broker-symbols="${esc(node.id)}">Reintentar</button></article>`;
+  }
+  const rows = state.inventory?.by_symbol || [];
+  const disabled = new Set((state.settings?.disabled_symbols || []).map(item => String(item).toLowerCase()));
+  const symbols = [...new Set([
+    ...rows.map(item => String(item.symbol || "")),
+    ...(state.settings?.disabled_symbols || []).map(String),
+  ].filter(Boolean))].sort((left, right) => left.localeCompare(right));
+  const options = symbols.map(symbol => `<option value="${esc(symbol)}">${esc(symbol)}${disabled.has(symbol.toLowerCase()) ? " · deshabilitado" : ""}</option>`).join("");
+  return `<article class="broker-symbol-card" data-broker-symbol-card="${esc(node.id)}"><span><strong>${esc(node.name)}</strong><br><small class="${disabled.size ? "broker-disabled" : ""}">${disabled.size ? `${disabled.size} símbolo(s) deshabilitado(s)` : "Todos los símbolos habilitados"}</small></span><select aria-label="Símbolo de ${esc(node.name)}">${options || '<option value="">Sin símbolos disponibles</option>'}</select><button type="button" class="secondary" data-manage-broker-symbol="${esc(node.id)}" ${symbols.length ? "" : "disabled"}>Gestionar</button></article>`;
+}
+
+function renderBrokerControls() {
+  const nodes = (config?.nodes || []).filter(node => !node.excluded);
+  document.querySelector("#broker-symbol-controls").innerHTML = nodes.map(node => {
+    const state = brokerStates.get(node.id);
+    return state ? brokerCard(node, state) : `<article class="broker-symbol-card"><span><strong>${esc(node.name)}</strong><br><small>Cargando símbolos…</small></span></article>`;
+  }).join("");
+}
+
+async function loadBrokerControls() {
+  renderBrokerControls();
+  const nodes = (config?.nodes || []).filter(node => !node.excluded);
+  await Promise.all(nodes.map(async node => {
+    try { brokerStates.set(node.id, await portfolioRequest(node.id)); }
+    catch (error) { brokerStates.set(node.id, {error:error.message, inventory:{by_symbol:[]}, settings:{}}); }
+  }));
+  renderBrokerControls();
+}
+
+function renderManagedSymbolSets() {
+  document.querySelector("#prop-symbol-set-rows").innerHTML = managedSymbolSets.length
+    ? managedSymbolSets.map((row, index) => `<tr><td title="${esc(row.set_path)}"><strong>${esc(shortSetName(row.set_name))}</strong></td><td>${esc(row.account || "—")}</td><td>${esc(row.timeframe || "—")}</td><td><span class="symbol-set-state ${esc(row.state)}">${esc(row.state_label)}</span></td><td><button type="button" class="secondary table-action" data-prop-set-state="${index}">Cambiar estado</button></td></tr>`).join("")
+    : '<tr><td colspan="5">No se encontraron sets para este símbolo.</td></tr>';
+}
+
+async function loadManagedSymbolSets() {
+  const data = await postManager("symbol-sets", {symbol:managedSymbol});
+  managedSymbolSets = data.sets || [];
+  document.querySelector("#prop-symbol-summary").textContent = `${data.total || 0} sets · ${managedSymbol}`;
+  renderManagedSymbolSets();
+}
+
+async function openSymbolManager(nodeId, symbol) {
+  managedBrokerNode = nodeId;
+  managedSymbol = symbol;
+  const node = config.nodes.find(item => item.id === nodeId);
+  const state = brokerStates.get(nodeId) || {};
+  const disabled = new Set((state.settings?.disabled_symbols || []).map(item => String(item).toLowerCase()));
+  document.querySelector("#prop-symbol-title").textContent = `${node?.name || nodeId} · ${symbol}`;
+  document.querySelector("#prop-symbol-summary").textContent = "Cargando los sets y su estado…";
+  document.querySelector("#prop-symbol-disabled").checked = disabled.has(symbol.toLowerCase());
+  document.querySelector("#prop-symbol-set-rows").innerHTML = '<tr><td colspan="5">Cargando…</td></tr>';
+  document.querySelector("#prop-symbol-dialog").showModal();
+  try { await loadManagedSymbolSets(); }
+  catch (error) {
+    document.querySelector("#prop-symbol-summary").textContent = error.message;
+    document.querySelector("#prop-symbol-set-rows").innerHTML = `<tr><td colspan="5" class="error-text">${esc(error.message)}</td></tr>`;
+  }
+}
+
+async function refreshBrokerState(nodeId) {
+  brokerStates.set(nodeId, await portfolioRequest(nodeId));
+  renderBrokerControls();
+}
+
+async function saveManagedSymbol() {
+  const state = brokerStates.get(managedBrokerNode) || {};
+  const current = (state.settings?.disabled_symbols || []).map(String);
+  const target = managedSymbol.toLowerCase();
+  const next = current.filter(symbol => symbol.toLowerCase() !== target);
+  if (document.querySelector("#prop-symbol-disabled").checked) next.push(managedSymbol);
+  await portfolioRequest(managedBrokerNode, "settings", {disabled_symbols:next});
+  await refreshBrokerState(managedBrokerNode);
+  toast(`${managedSymbol} ${next.some(symbol => symbol.toLowerCase() === target) ? "deshabilitado" : "habilitado"} para este broker.`);
+}
+
+async function changeManagedSetState(row) {
+  const setName = row.set_name || row.set_path;
+  if (row.quarantine_key) {
+    const target = await askQuarantineTarget({
+      title:shortSetName(setName),
+      detail:"El cambio se aplica sólo a la memoria de este broker.",
+      current:row.reason_code,
+    });
+    if (!target) return;
+    if (quarantineTargetIsTheSame(target, row.reason_code)) {
+      toast(`${shortSetName(setName)} ya está en ese estado.`);
+      return;
+    }
+    await postManager("requalify", {quarantine_id:row.quarantine_key, reason_code:target});
+  } else {
+    const plan = await planExclusion({
+      setPath:row.set_path, setName,
+      title:`Excluir ${shortSetName(setName)}`,
+      detail:"La exclusión se aplica sólo a este broker y afecta a sus próximas generaciones y a Experimenta Prop.",
+    });
+    if (!plan) return;
+    await runExclusion(plan, {set_path:row.set_path, reason_code:plan.reasonCode});
+  }
+  await Promise.all([loadManagedSymbolSets(), refreshBrokerState(managedBrokerNode)]);
+  toast(`${shortSetName(setName)} actualizado en este broker.`);
 }
 
 function metric(label, value) {
@@ -201,6 +338,31 @@ document.querySelector("#reload").addEventListener("click", () => {
 document.querySelector("#save").addEventListener("click", () => post("settings", formSettings()));
 document.querySelector("#run").addEventListener("click", () => post("run", formSettings()));
 document.querySelector("#stop").addEventListener("click", () => post("stop"));
+document.querySelector("#broker-symbol-controls").addEventListener("click", event => {
+  const manage = event.target.closest("[data-manage-broker-symbol]");
+  if (manage) {
+    const card = manage.closest("[data-broker-symbol-card]");
+    const symbol = card?.querySelector("select")?.value;
+    if (symbol) openSymbolManager(manage.dataset.manageBrokerSymbol, symbol);
+    return;
+  }
+  const reload = event.target.closest("[data-reload-broker-symbols]");
+  if (reload) {
+    refreshBrokerState(reload.dataset.reloadBrokerSymbols).catch(error => toast(error.message, true));
+  }
+});
+document.querySelectorAll("[data-prop-symbol-close]").forEach(button => {
+  button.addEventListener("click", () => document.querySelector("#prop-symbol-dialog").close());
+});
+document.querySelector("#prop-symbol-save").addEventListener("click", () => {
+  saveManagedSymbol().catch(error => toast(error.message, true));
+});
+document.querySelector("#prop-symbol-set-rows").addEventListener("click", event => {
+  const button = event.target.closest("[data-prop-set-state]");
+  if (!button) return;
+  const row = managedSymbolSets[Number(button.dataset.propSetState)];
+  if (row) changeManagedSetState(row).catch(error => toast(error.message, true));
+});
 request("config").then(renderConfig).catch(error => {
   document.querySelector("#status").textContent = error.message;
   markLoaded("Error de carga");

@@ -47,8 +47,12 @@ def _without_quarantine(items: list[Any], names: set[str]) -> list[Any]:
 
 def _row_family_allowed(row: dict[str, Any], settings: dict[str, Any]) -> bool:
     allowed = set(settings.get("symbol_families") or [])
+    disabled = {str(item).casefold() for item in settings.get("disabled_symbols") or []}
     symbol = row.get("executable_symbol") or row.get("target_symbol") or row.get("symbol")
-    return not allowed or portfolio_group_key(str(symbol or "")) in allowed
+    return (
+        str(symbol or "").casefold() not in disabled
+        and (not allowed or portfolio_group_key(str(symbol or "")) in allowed)
+    )
 
 
 def _allowed_names(
@@ -103,7 +107,8 @@ def _seed_sets(
 
 def _manual_member_rows(source: Any, allowed: set[str] | None) -> list[dict[str, Any]]:
     members: list[dict[str, Any]] = []
-    for saved in source.saved_portfolios("full_history"):
+    saved_state = source.saved_portfolios("full_history")
+    for saved in saved_state.get("portfolios") or []:
         if not saved.get("manual_portfolio"):
             continue
         portfolio_id = saved.get("id")
@@ -133,9 +138,14 @@ def _manual_sets(
 
 def _filter_symbol_families(items: list[Any], settings: dict[str, Any]) -> list[Any]:
     allowed = set(settings.get("symbol_families") or [])
-    if not allowed:
+    disabled = {str(item).casefold() for item in settings.get("disabled_symbols") or []}
+    if not allowed and not disabled:
         return items
-    return [item for item in items if portfolio_group_key(item.symbol) in allowed]
+    return [
+        item for item in items
+        if str(item.symbol).casefold() not in disabled
+        and (not allowed or portfolio_group_key(item.symbol) in allowed)
+    ]
 
 
 def _prop_margin_model(source: Any, settings: dict[str, Any]) -> Any:
@@ -203,6 +213,7 @@ def load_pool(
     settings: dict[str, Any], source_factory: Callable[[str], Any],
     checkpoint: Callable[[str], None],
     active_members_factory: Callable[[str, Any], list[dict[str, Any]]] | None = None,
+    symbol_settings_factory: Callable[[str], dict[str, Any]] | None = None,
 ) -> tuple[list[lab.LabStrategy], lab.LabAxis, set[str], set[str], list[str], dict[str, Any]]:
     loaded: list[tuple[Any, str, str]] = []
     seed_ids: set[str] = set()
@@ -213,9 +224,14 @@ def load_pool(
     for node_id in settings["source_nodes"]:
         try:
             source = source_factory(node_id)
-            allowed = _allowed_names(settings, node_id, source, active_members_factory)
+            origin_settings = dict(settings)
+            if symbol_settings_factory is not None:
+                origin_settings["disabled_symbols"] = (
+                    symbol_settings_factory(node_id).get("disabled_symbols") or []
+                )
+            allowed = _allowed_names(origin_settings, node_id, source, active_members_factory)
             items, ids, manual, meta = load_origin(
-                source, node_id, settings, warnings, checkpoint, allowed,
+                source, node_id, origin_settings, warnings, checkpoint, allowed,
             )
             first_source = first_source or source
             loaded.extend(items)

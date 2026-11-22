@@ -28,6 +28,18 @@ apruebe una evaluación prop con sus límites de pérdida y objetivo.
   estrategia de portafolio manual no puede reintroducir un set excluido por
   degradación, OHLC, fallo en real o descarte manual. El origen informa cuántas
   filas retiró la cuarentena.
+- Los símbolos deshabilitados se leen de los ajustes `full_history` de cada
+  broker y se excluyen de sus tres fuentes antes de buscar la composición. La
+  pantalla los muestra por broker y abre la misma gestión por símbolo de UBS:
+  desde ahí se habilita o deshabilita el símbolo y se cambia el estado de cada
+  set usando las rutas existentes de exclusión y reclasificación. La decisión
+  nunca se comparte entre brokers.
+
+`PortfolioSource.saved_portfolios()` devuelve un estado con la lista dentro de
+`portfolios`, no la lista directamente. El primer recorrido de portafolios
+manuales iteró las claves de ese estado y falló al terminar las seeds con
+`'str' object has no attribute 'get'`. El cargador manual consume desde entonces
+la clave `portfolios`, y el doble de prueba reproduce la forma real del contrato.
 
 ## Simulación
 

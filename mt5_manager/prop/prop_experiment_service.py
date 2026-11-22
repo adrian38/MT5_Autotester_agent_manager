@@ -81,12 +81,14 @@ class PropExperimentCoordinator:
         self, nodes: list[dict[str, Any]], settings_path: Path,
         source_factory: Callable[[str], Any],
         active_members_factory: Callable[[str, Any], list[dict[str, Any]]] | None = None,
+        symbol_settings_factory: Callable[[str], dict[str, Any]] | None = None,
     ) -> None:
         self.nodes = {str(node.get("id")): node for node in nodes}
         self.settings_path = Path(settings_path)
         self.result_path = self.settings_path.with_name("prop_experiment_last_result.json")
         self.source_factory = source_factory
         self.active_members_factory = active_members_factory
+        self.symbol_settings_factory = symbol_settings_factory
         self.lock = threading.RLock()
         self.log_lines: deque[str] = deque(maxlen=4000)
         self.cancel = threading.Event()
@@ -191,6 +193,7 @@ class PropExperimentCoordinator:
     def _run(self, settings: dict[str, Any]) -> None:
         pool, axis, seed_keys, manual_keys, warnings, origins = load_pool(
             settings, self.source_factory, self._checkpoint, self.active_members_factory,
+            self.symbol_settings_factory,
         )
         if not pool or not axis.size:
             raise ValueError("El pool no tiene días operables en la ventana elegida")

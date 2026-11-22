@@ -20,11 +20,11 @@ class _Source:
         return []
 
     @staticmethod
-    def saved_portfolios(_scope: str) -> list[dict[str, object]]:
-        return [
+    def saved_portfolios(_scope: str) -> dict[str, object]:
+        return {"portfolios": [
             {"id": 7, "manual_portfolio": True},
             {"id": 8, "manual_portfolio": False},
-        ]
+        ]}
 
     @staticmethod
     def saved_portfolio_detail(portfolio_id: int, _scope: str) -> dict[str, object]:
@@ -46,6 +46,31 @@ class PropExperimentPoolTests(unittest.TestCase):
         ]
         filtered = pool._filter_symbol_families(items, {"symbol_families": ["Forex", "Metals"]})
         self.assertEqual([item.symbol for item in filtered], ["EURUSD", "XAUUSD"])
+
+    def test_disabled_symbols_are_filtered_per_broker(self) -> None:
+        items = [SimpleNamespace(symbol="EURUSD"), SimpleNamespace(symbol="XAUUSD")]
+        filtered = pool._filter_symbol_families(items, {
+            "symbol_families": ["Forex", "Metals"], "disabled_symbols": ["XAUUSD"],
+        })
+        self.assertEqual([item.symbol for item in filtered], ["EURUSD"])
+
+    def test_each_broker_receives_its_own_disabled_symbols(self) -> None:
+        captured: dict[str, object] = {}
+
+        def capture(_source, _node_id, settings, *_args):
+            captured.update(settings)
+            raise RuntimeError("captured")
+
+        with (
+            mock.patch.object(pool, "load_origin", side_effect=capture),
+            self.assertRaisesRegex(RuntimeError, "captured"),
+        ):
+            pool.load_pool(
+                {"source_nodes": ["ic"], "active_portfolios_only": False},
+                lambda _node_id: _Source(), lambda _message: None,
+                symbol_settings_factory=lambda _node_id: {"disabled_symbols": ["XAUUSD"]},
+            )
+        self.assertEqual(captured["disabled_symbols"], ["XAUUSD"])
 
     def test_prop_leverage_replaces_the_origin_brokers_leverage(self) -> None:
         with mock.patch.object(pool, "build_margin_model", return_value=MarginModel()):

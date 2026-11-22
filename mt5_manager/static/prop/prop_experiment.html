@@ -38,6 +38,7 @@
         <section>
           <h3>Brokers de origen</h3>
           <div id="nodes" class="nodes"></div>
+          <div id="broker-symbol-controls" class="broker-symbol-controls"></div>
         </section>
         <section>
           <h3>Familias de símbolos</h3>
@@ -99,7 +100,15 @@
     </section>
   </main>
   <footer>Simulación orientativa: usa PnL cerrado diario. La validación final debe ejecutarse en MT5 con equity e intradía.</footer>
+  <dialog id="prop-symbol-dialog" class="log-dialog symbol-manager-dialog">
+    <div class="dialog-head"><div><p class="eyebrow">GESTIÓN POR SÍMBOLO Y BROKER</p><h2 id="prop-symbol-title">Sets del símbolo</h2><p id="prop-symbol-summary" class="subtitle"></p></div><button type="button" class="icon-button" data-prop-symbol-close aria-label="Cerrar">×</button></div>
+    <fieldset><legend>Disponibilidad del símbolo</legend><label class="symbol-disable-option"><input id="prop-symbol-disabled" type="checkbox"> Deshabilitar en generaciones UBS y en Experimenta Prop para este broker</label></fieldset>
+    <div class="universe-table-wrap symbol-set-table-wrap"><table class="universe-table"><thead><tr><th>Set</th><th>Cuenta</th><th>TF</th><th>Estado</th><th>Acción</th></tr></thead><tbody id="prop-symbol-set-rows"><tr><td colspan="5">Cargando…</td></tr></tbody></table></div>
+    <div class="dialog-actions"><button type="button" class="secondary" data-prop-symbol-close>Cerrar</button><button id="prop-symbol-save" type="button">Guardar símbolo</button></div>
+  </dialog>
+  <div id="toast" role="status"></div>
   <script src="/portfolio_curve_view.js"></script>
+  <script src="/exclusion_reason.js"></script>
   <script src="/prop_experiment.js"></script>
   <script src="/manager_restart.js"></script>
   <script src="/main_nav.js"></script>
