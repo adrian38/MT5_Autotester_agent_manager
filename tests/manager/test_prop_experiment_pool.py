@@ -72,6 +72,32 @@ class PropExperimentPoolTests(unittest.TestCase):
                 symbol_settings_factory=lambda _node_id: {"disabled_symbols": ["XAUUSD"]},
             )
         self.assertEqual(captured["disabled_symbols"], ["XAUUSD"])
+        self.assertTrue(captured["include_candidates"])
+        self.assertTrue(captured["include_seeds"])
+        self.assertTrue(captured["include_manual_portfolios"])
+
+    def test_candidate_loader_uses_oos_ohlc_but_not_any_tick_report(self) -> None:
+        source = _Source()
+        source.candidate_rows = lambda **_kwargs: [{
+            "set_path": "C:/sets/a.set", "target_symbol": "EURUSD",
+            "oos_report_path": "C:/reports/oos_ohlc.html",
+            "full_history_report_path": "C:/reports/probe_every_tick.html",
+            "final_tick_report_path": "C:/reports/final_every_tick.html",
+            "final_tick_to_date": "2026.06.01",
+        }]
+        captured = []
+        with mock.patch.object(
+            pool, "load_robust_sets_from_rows",
+            side_effect=lambda rows, *_args, **_kwargs: (captured.extend(rows) or [], []),
+        ):
+            pool._candidate_sets(
+                source,
+                {"include_candidates": True, "symbol_families": [], "disabled_symbols": []},
+                None, [], lambda _message: None,
+            )
+        self.assertEqual(captured[0]["oos_report_path"], "C:/reports/oos_ohlc.html")
+        self.assertEqual(captured[0]["full_history_report_path"], "")
+        self.assertEqual(captured[0]["final_tick_report_path"], "")
 
     def test_prop_leverage_replaces_the_origin_brokers_leverage(self) -> None:
         with mock.patch.object(pool, "build_margin_model", return_value=MarginModel()):

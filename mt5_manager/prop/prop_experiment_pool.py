@@ -59,6 +59,22 @@ def _row_family_allowed(row: dict[str, Any], settings: dict[str, Any]) -> bool:
     )
 
 
+def _candidate_ohlc_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Conserva la elegibilidad FT6M, pero entrega sólo IS + OOS OHLC al cargador."""
+    return {
+        **row,
+        "full_history_report_path": "",
+        "final_tick_report_path": "",
+        "real_tick_report_path": "",
+        "final_tick_to_date": "",
+    }
+
+
+def _manual_ohlc_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Un manual conserva su histórico OHLC y nunca aporta una cola Every Tick."""
+    return {**row, "final_tick_report_path": "", "real_tick_report_path": ""}
+
+
 def _allowed_names(
     settings: dict[str, Any], node_id: str, source: Any,
     active_members_factory: Callable[[str, Any], list[dict[str, Any]]] | None,
@@ -83,7 +99,7 @@ def _candidate_sets(
     if allowed is not None:
         rows = [row for row in rows if _set_name(row.get("set_path")) in allowed]
     total = len(rows)
-    rows = [row for row in rows if _row_family_allowed(row, settings)]
+    rows = [_candidate_ohlc_row(row) for row in rows if _row_family_allowed(row, settings)]
     checkpoint(f"{source.broker}: cargando {len(rows)} candidatas de {total}")
     loaded, notes = load_robust_sets_from_rows(
         rows, [], parse=cached_report,
@@ -130,7 +146,7 @@ def _manual_sets(
 ) -> tuple[list[Any], int]:
     if not settings["include_manual_portfolios"]:
         return [], 0
-    rows = _manual_member_rows(source, allowed)
+    rows = [_manual_ohlc_row(row) for row in _manual_member_rows(source, allowed)]
     checkpoint(f"{source.broker}: cargando {len(rows)} estrategias de portafolios manuales")
     loaded, notes = load_robust_sets_from_rows(
         rows, [], parse=cached_report,
@@ -233,7 +249,12 @@ def load_pool(
     for node_id in settings["source_nodes"]:
         try:
             source = source_factory(node_id)
-            origin_settings = dict(settings)
+            origin_settings = {
+                **settings,
+                "include_candidates": True,
+                "include_seeds": True,
+                "include_manual_portfolios": True,
+            }
             if symbol_settings_factory is not None:
                 origin_settings["disabled_symbols"] = (
                     symbol_settings_factory(node_id).get("disabled_symbols") or []

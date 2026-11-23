@@ -47,15 +47,12 @@
           <p class="source-note">El embudo descarta las familias no seleccionadas antes de buscar.</p>
         </section>
         <section class="sources-section">
-          <h3>Fuentes y filtro transversal</h3>
+          <h3>Universo fijo de la fase 1</h3>
           <div class="source-options">
-            <label><input id="include_candidates" type="checkbox"> Candidatas actuales (embudo completo)</label>
-            <label><input id="include_seeds" type="checkbox"> Seeds UBS con Final Tick 6M aceptado</label>
-            <label><input id="include_manual_portfolios" type="checkbox"> Estrategias de portafolios manuales</label>
             <label><input id="include_grids" type="checkbox"> Utilizar grids <small>(experimental)</small></label>
             <label class="active-filter"><input id="active_portfolios_only" type="checkbox"> Solo estrategias presentes en portafolios activos</label>
           </div>
-          <p class="source-note">Los tres primeros checks son fuentes. El último filtra la unión y respeta la variante activa exacta.</p>
+          <p class="source-note">Incluye sets generados que aprobaron Final Tick 6M, seeds UBS que aprobaron UBS Final Tick 6M y sets de portafolios manuales. Every Tick sólo admite o rechaza: la simulación usa exclusivamente el OHLC desde 2025-01-01 hasta antes de 2026-06-01.</p>
         </section>
       </div>
       <div class="actions">
@@ -104,7 +101,7 @@
         <div id="phase-three-chart" class="audit-analysis-chart"></div>
       </section>
       <div id="allocation-table" class="table-wrap universe-table-wrap portfolio-members-wrap" hidden><table class="universe-table portfolio-members">
-        <thead><tr><th>Excluir</th><th>Origen</th><th>Tipo</th><th>Estrategia</th><th>Símbolo</th><th>TF</th><th>Lote</th><th>Unid.</th><th>Net histórico</th><th>DD riesgo</th><th>Margen</th></tr></thead>
+        <thead><tr><th>Excluir</th><th>Origen</th><th>Tipo</th><th>Estrategia</th><th>Símbolo</th><th>TF</th><th>Lote</th><th>Unid.</th><th>Net histórico</th><th>DD riesgo</th><th>Margen pico OHLC</th></tr></thead>
         <tbody id="allocations"></tbody>
       </table><div class="repair-bar"><span>Las exclusiones pertenecen a este Portafolio Prop; no cambian la memoria UBS del broker.</span><button id="repair-prop" class="secondary" disabled>Excluir y arreglar composición</button></div></div>
     </section>

@@ -13,7 +13,8 @@ from .prop_experiment_engine import (
     SearchResult, credible_pool, evaluate, result_payload, search,
 )
 from .prop_experiment_periods import (
-    PHASE_ONE_FROM, PHASE_ONE_TO, PHASE_THREE_FROM, PHASE_THREE_TO,
+    PHASE_ONE_FIRST_DAY, PHASE_ONE_FROM, PHASE_ONE_LAST_DAY, PHASE_ONE_TO,
+    PHASE_THREE_FROM, PHASE_THREE_TO,
     PHASE_TWO_FROM, PHASE_TWO_TO, replay_window,
 )
 from .prop_experiment_pool import load_pool
@@ -30,10 +31,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "include_manual_portfolios": True, "active_portfolios_only": False,
     "include_grids": False, "auto_continue": False,
 }
-RESULT_SCHEMA_VERSION = 7
+RESULT_SCHEMA_VERSION = 8
 
 REPLAY_WARNING = (
-    "La campaña usa cierres MT5 ordenados por hora y margen estimado del broker de origen. "
+    "La fase 1 usa sólo cierres OHLC desde 2025-01-01 hasta antes de 2026-06-01, "
+    "ordenados por hora; Every Tick/Final Tick 6M sólo es un veredicto de admisión. "
+    "El margen pico se estima con el apalancamiento de la prop. "
     "La equity flotante, el rollover y la liquidación intradía requieren datos tick de la cuenta prop."
 )
 
@@ -87,9 +90,9 @@ def normalize_settings(raw: dict[str, Any], *, migrate: bool = False) -> dict[st
         "evaluation_fee_eur": max(evaluation_fee, 0.01),
         "symbol_families": families,
         "source_nodes": [str(item) for item in value["source_nodes"] if str(item)],
-        "include_candidates": bool(value["include_candidates"]),
-        "include_seeds": bool(value["include_seeds"]),
-        "include_manual_portfolios": bool(value["include_manual_portfolios"]),
+        "include_candidates": True,
+        "include_seeds": True,
+        "include_manual_portfolios": True,
         "active_portfolios_only": bool(value["active_portfolios_only"]),
         "include_grids": bool(value["include_grids"]),
         "auto_continue": bool(value["auto_continue"]),
@@ -153,10 +156,6 @@ class PropExperimentCoordinator:
         normalized = normalize_settings(merged)
         allowed = set(self._allowed_nodes())
         normalized["source_nodes"] = [item for item in normalized["source_nodes"] if item in allowed]
-        if not any(normalized[key] for key in (
-            "include_candidates", "include_seeds", "include_manual_portfolios",
-        )):
-            raise ValueError("Activa candidatas, seeds o portafolios manuales")
         with self.lock:
             self.stored = normalized
         save_json(self.settings_path, normalized)
@@ -287,14 +286,15 @@ class PropExperimentCoordinator:
     def _run_build(self, settings: dict[str, Any]) -> None:
         executable, full_axis, warnings, origins = self._load_executable(settings)
         executable, axis, coverage_warnings = replay_window(
-            executable, full_axis, PHASE_ONE_FROM, PHASE_ONE_TO,
+            executable, full_axis, PHASE_ONE_FIRST_DAY, PHASE_ONE_LAST_DAY,
         )
         pool_count = len(executable)
         seed_count = sum(item.source_kind == "seed" for item in executable)
         manual_count = sum(item.source_kind == "manual" for item in executable)
         self._checkpoint(
             f"Buscando con {pool_count} estrategias "
-            f"({seed_count} seeds, {manual_count} manuales)"
+            f"({pool_count - seed_count - manual_count} generadas FT6M, "
+            f"{seed_count} seeds UBS FT6M, {manual_count} manuales)"
         )
         found = search(executable, axis, profile(settings["profile_id"]), settings, self._checkpoint)
         payload = result_payload(found, axis, float(settings["capital"]))
@@ -340,7 +340,7 @@ class PropExperimentCoordinator:
         executable, full_axis, warnings, origins = self._load_executable(settings)
         executable = [item for item in executable if item.lab.key not in excluded]
         executable, axis, coverage_warnings = replay_window(
-            executable, full_axis, PHASE_ONE_FROM, PHASE_ONE_TO,
+            executable, full_axis, PHASE_ONE_FIRST_DAY, PHASE_ONE_LAST_DAY,
         )
         found = search(
             executable, axis, profile(settings["profile_id"]), settings,

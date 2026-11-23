@@ -10,9 +10,10 @@ con el menor tiempo de aprobación posible y respetando sus reglas y bankroll.
 - Lee ICTrading, AXI y RoboForex mediante el mismo `readonly_source` de
   Experimenta. Vantage se muestra, pero queda excluido por el valor estable
   `portfolio_broker == VANTAGE` tanto en la interfaz como en el backend.
-- Hay tres fuentes independientes: candidatas actuales, seeds UBS originales y
-  estrategias de portafolios manuales. Las candidatas conservan las cuatro
-  etapas aceptadas de `candidate_rows`.
+- La fase 1 usa tres fuentes fijas: candidatas actuales que conservan las cuatro
+  etapas aceptadas de `candidate_rows`, incluido Final Tick 6M; seeds UBS que
+  tienen aceptada su fase UBS Final Tick 6M; y estrategias de portafolios
+  manuales, que son la única excepción sin fases.
 - La fuente seed exige además `seed_final_tick_6m.status='accepted'` y
   `accepted=1`, con la misma huella `seed_mtime`/`seed_size` que el sondeo
   `seed_final_tick`. No significa «toda seed aceptada».
@@ -97,7 +98,14 @@ Cada broker aporta sus propios mínimos de volumen y nocionales. Para símbolos
 sin mínimo medido se usa el menor volumen positivo observado en la pasada.
 Un informe a lote fijo se reescala al mínimo disponible y el margen se estima
 con los tramos de la prop. La fase 2 recibe exactamente el lote calculado.
-La selección usa exclusivamente 2025-01-01 → 2026-06-30.
+La selección usa exclusivamente los cierres del OHLC OOS del periodo
+`[2025-01-01, 2026-06-01)`. La reproducción empieza el primer día de mercado,
+2025-01-02; el corte 2026-06-01 es exclusivo y el último día de mercado exigido
+es 2026-05-29. Final Tick 6M decide la elegibilidad de las candidatas, pero su
+curva Every Tick no se incorpora a la simulación de fase 1. Para cada
+estrategia, el margen por unidad se multiplica por su máximo de posiciones
+simultáneas observado en ese OHLC; la suma conservadora de esos picos no puede
+superar el capital de la prueba con el apalancamiento del perfil prop.
 
 La fase 2 congela esa composición y ejecuta en el agente los dos modelos de la
 comprobación manual existente —OHLC M1 y Every Tick— entre 2025-11-20 y

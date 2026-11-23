@@ -18,7 +18,10 @@ from mt5_manager.prop.prop_experiment_engine import (
     simulate_trial,
 )
 from mt5_manager.prop.prop_experiment_reporting import attempt_analysis
-from mt5_manager.prop.prop_experiment_periods import replay_window
+from mt5_manager.prop.prop_experiment_periods import (
+    PHASE_ONE_FIRST_DAY, PHASE_ONE_FROM, PHASE_ONE_LAST_DAY, PHASE_ONE_TO,
+    _calendar_axis, replay_window,
+)
 from mt5_manager.prop.prop_experiment_validation import _validation_groups
 from mt5_manager.prop.prop_profiles import PropPhase, PropProfile, profile
 from mt5_manager.prop.the5ers_hyper_growth_engine import GrowthClose, GrowthDay
@@ -272,6 +275,7 @@ class PropExperimentEngineTests(unittest.TestCase):
         items, axis, warnings = replay_window([item, incomplete], LabAxis((day,), (0,), 1), day, day)
         self.assertEqual(len(items), 1)
         self.assertIn("sin cobertura", warnings[0])
+        self.assertEqual(items[0].lab.margin_per_unit, 200.0)
         measured = evaluate(items, {"candidate": 1}, axis, profile("the5ers-growth"), 5000, 120)
         result = SearchResult({"candidate": 1}, measured, tuple(items))
         analysis = attempt_analysis(result, axis, profile("the5ers-growth"), {
@@ -281,6 +285,15 @@ class PropExperimentEngineTests(unittest.TestCase):
         self.assertEqual(analysis["totals"]["daily_pauses"], 1)
         self.assertAlmostEqual(result_payload(result, axis, 5000)["portfolio"]["net_profit"], 550.0)
         self.assertEqual(_validation_groups(result_payload(result))[0][1], 0.1)
+
+    def test_phase_one_june_first_cutoff_is_exclusive(self) -> None:
+        self.assertEqual(PHASE_ONE_TO, "2026-06-01")
+        self.assertEqual(PHASE_ONE_FIRST_DAY, "2025-01-02")
+        self.assertEqual(PHASE_ONE_LAST_DAY, "2026-05-31")
+        axis = _calendar_axis(("2026-05-29",), PHASE_ONE_FIRST_DAY, PHASE_ONE_LAST_DAY)
+        self.assertEqual(axis.days[0], PHASE_ONE_FIRST_DAY)
+        self.assertEqual(axis.days[-1], "2026-05-29")
+        self.assertNotIn(PHASE_ONE_TO, axis.days)
 
 
 if __name__ == "__main__":

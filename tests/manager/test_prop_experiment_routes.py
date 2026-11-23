@@ -52,8 +52,11 @@ class PropExperimentRouteTests(unittest.TestCase):
     def test_page_assets_and_profiles_are_served(self) -> None:
         status, page = self.request("/prop_experiment.html")
         self.assertEqual(status, 200)
-        self.assertIn("Seeds UBS con Final Tick 6M", page)
-        self.assertIn("Estrategias de portafolios manuales", page)
+        self.assertIn("seeds UBS que aprobaron UBS Final Tick 6M", page)
+        self.assertIn("sets de portafolios manuales", page)
+        self.assertNotIn('id="include_candidates"', page)
+        self.assertNotIn('id="include_seeds"', page)
+        self.assertNotIn('id="include_manual_portfolios"', page)
         self.assertIn("Solo estrategias presentes en portafolios activos", page)
         self.assertIn("Bankroll mensual (€)", page)
         self.assertIn("Coste por prueba (€)", page)
@@ -91,6 +94,8 @@ class PropExperimentRouteTests(unittest.TestCase):
         self.assertNotIn("details { margin-top", styles)
         self.assertIn("align-items: flex-end", styles)
         self.assertNotIn("align-items: flex-start", styles)
+
+    def test_profile_and_phase_configuration_is_served(self) -> None:
         status, config = self.request("/api/prop-experiment/config")
         self.assertEqual(status, 200)
         self.assertEqual(len(config["profiles"]), 1)
@@ -104,6 +109,9 @@ class PropExperimentRouteTests(unittest.TestCase):
         self.assertEqual(profile["symbol_families"], ["Forex", "Metals", "Indices"])
         self.assertEqual(config["settings"]["bankroll_eur"], 1000.0)
         self.assertEqual(config["settings"]["evaluation_fee_eur"], 52.0)
+        self.assertTrue(config["settings"]["include_candidates"])
+        self.assertTrue(config["settings"]["include_seeds"])
+        self.assertTrue(config["settings"]["include_manual_portfolios"])
         self.assertFalse(config["settings"]["include_grids"])
         self.assertFalse(config["settings"]["auto_continue"])
         self.assertEqual([item["id"] for item in config["phases"]], [1, 2, 3])
@@ -121,13 +129,15 @@ class PropExperimentRouteTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(saved["settings"]["source_nodes"], ["ic"])
 
-    def test_all_three_source_switches_cannot_be_off(self) -> None:
-        status, error = self.request("/api/prop-experiment/settings", {
+    def test_the_three_source_contract_cannot_be_changed_by_the_client(self) -> None:
+        status, saved = self.request("/api/prop-experiment/settings", {
             "include_candidates": False, "include_seeds": False,
             "include_manual_portfolios": False, "active_portfolios_only": True,
         })
-        self.assertEqual(status, 400)
-        self.assertIn("seeds", error["error"])
+        self.assertEqual(status, 200)
+        self.assertTrue(saved["settings"]["include_candidates"])
+        self.assertTrue(saved["settings"]["include_seeds"])
+        self.assertTrue(saved["settings"]["include_manual_portfolios"])
 
     def test_capital_and_symbol_family_must_be_offered_by_the_profile(self) -> None:
         status, error = self.request("/api/prop-experiment/settings", {

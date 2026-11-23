@@ -1,6 +1,6 @@
 const api = "/api/prop-experiment/";
 const numeric = ["bankroll_eur","evaluation_fee_eur"];
-const switches = ["include_candidates","include_seeds","include_manual_portfolios","active_portfolios_only","include_grids","auto_continue"];
+const switches = ["active_portfolios_only","include_grids","auto_continue"];
 let config = null;
 let brokerStates = new Map();
 let managedBrokerNode = "";
@@ -297,7 +297,7 @@ function renderPortfolioContract(result) {
     + metric("Coste por prueba", `€${number(settings.evaluation_fee_eur)}`)
     + metric("Capital de la prueba", `$${number(settings.capital, 0)}`)
     + metric("Apalancamiento por familia", leverageText(profile))
-    + metric("Margen estimado", `$${number(portfolio.margin_required)} · ${number(portfolio.margin_pct, 1)}%`)
+    + metric("Margen pico OHLC", `$${number(portfolio.margin_required)} · ${number(portfolio.margin_pct, 1)}%`)
     + metric("Net histórico", `$${number(portfolio.net_profit)}`)
     + metric("DD máximo cerrado", `$${number(portfolio.max_drawdown)}`)
     + metric("Mejor día", `$${number(portfolio.best_day)}`)
@@ -357,7 +357,7 @@ function renderResult(result) {
   document.querySelector("#metrics").innerHTML = metric("Probabilidad histórica", `${number(evaluation.pass_rate, 1)}%`)
     + metric("Trials aprobados", `${evaluation.passed}/${evaluation.trials}`)
     + metric("Mediana para aprobar", evaluation.median_days ? `${number(evaluation.median_days, 0)} días` : "—")
-    + metric("Pool", `${result.pool.candidates} candidatas + ${result.pool.seeds} seeds + ${result.pool.manual || 0} manuales`);
+    + metric("Pool", `${result.pool.candidates} generadas FT6M + ${result.pool.seeds} seeds UBS FT6M + ${result.pool.manual || 0} manuales`);
   document.querySelector("#axis").textContent = `${result.axis.from} → ${result.axis.to}`;
   document.querySelector("#warnings").innerHTML = (result.warnings || []).map(item => `<div class="warning">${esc(item)}</div>`).join("");
   const labels = {seed:"Seed 6M", manual:"Manual", candidate:"Candidata"};
