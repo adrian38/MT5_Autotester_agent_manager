@@ -21,7 +21,7 @@ from ..experiment.experiment_seed_sets import accepted_seed_rows, load_seed_sets
 from ..portfolio.portfolio_coordinator_core import _relocated_member
 from ..portfolio.portfolio_identity import _allocation_source_rows
 from ..portfolio.portfolio_service import build_margin_model, cached_report
-from .prop_experiment_engine import PropStrategy, executable_pool
+from .prop_experiment_engine import PropStrategy, executable_pool, set_path_is_grid
 from .prop_profiles import profile
 
 
@@ -33,20 +33,22 @@ def _logical_set_name(value: Any) -> str:
     return re.sub(r"^robust_\d{6}_", "", _set_name(value))
 
 
-def _quarantine_names(source: Any) -> set[str]:
-    names: set[str] = set()
-    for row in source.quarantine_rows():
-        path = row.get("set_path")
-        names.update((_set_name(path), _logical_set_name(path)))
-    return {name for name in names if name}
+def _quarantine_keys(source: Any) -> set[str]:
+    """Las rutas excluidas, con la clave con la que las compara el inventario.
+
+    Compararlas por nombre de fichero daba falsos positivos: dos runs distintos
+    reutilizan el mismo nombre —``..._g002_s001_v003.set`` son posiciones
+    dentro de su run, no una identidad— para estrategias con otros parámetros.
+    Excluir el set del 13 de agosto tiraba también al homónimo del 15, que
+    nadie excluyó: seis candidatos de ICTrading que la pantalla de inventario
+    sí daba por disponibles.
+    """
+    keys = {source._match_key(row.get("set_path")) for row in source.quarantine_rows()}
+    return {key for key in keys if key}
 
 
-def _without_quarantine(items: list[Any], names: set[str]) -> list[Any]:
-    return [
-        item for item in items
-        if _set_name(item.set_path) not in names
-        and _logical_set_name(item.set_path) not in names
-    ]
+def _without_quarantine(items: list[Any], source: Any, keys: set[str]) -> list[Any]:
+    return [item for item in items if source._match_key(item.set_path) not in keys]
 
 
 def _row_family_allowed(row: dict[str, Any], settings: dict[str, Any]) -> bool:
@@ -168,9 +170,10 @@ def _filter_symbol_families(items: list[Any], settings: dict[str, Any]) -> list[
     ]
 
 
-def _inventory_rows(rows, settings, allowed, quarantined, path_field):
+def _inventory_rows(rows, settings, allowed, excluded, path_field):
     families = set(settings.get("symbol_families") or [])
     disabled = {str(item).casefold() for item in settings.get("disabled_symbols") or []}
+    grids = bool(settings.get("include_grids"))
     result = []
     for raw in rows:
         row = dict(raw)
@@ -181,9 +184,11 @@ def _inventory_rows(rows, settings, allowed, quarantined, path_field):
         )
         if allowed is not None and name not in allowed:
             continue
-        if name in quarantined or logical in quarantined or symbol.casefold() in disabled:
+        if excluded(path) or symbol.casefold() in disabled:
             continue
         if families and portfolio_group_key(symbol) not in families:
+            continue
+        if not grids and set_path_is_grid(path):
             continue
         row["_logical_name"] = logical
         result.append(row)
@@ -191,16 +196,20 @@ def _inventory_rows(rows, settings, allowed, quarantined, path_field):
 
 
 def _source_inventory(source, settings, allowed) -> dict[str, Any]:
-    quarantined = _quarantine_names(source)
+    quarantined = _quarantine_keys(source)
+
+    def excluded(path: Any) -> bool:
+        return source._match_key(path) in quarantined
+
     candidates = _inventory_rows(
-        source.candidate_rows(include_quarantined=False), settings, allowed, quarantined, "set_path",
+        source.candidate_rows(include_quarantined=False), settings, allowed, excluded, "set_path",
     )
     seeds = _inventory_rows(
         accepted_seed_rows(source, require_final_tick_6m=True),
-        settings, allowed, quarantined, "seed_path",
+        settings, allowed, excluded, "seed_path",
     )
     manual = _inventory_rows(
-        _manual_member_rows(source, allowed), settings, allowed, quarantined, "set_path",
+        _manual_member_rows(source, allowed), settings, allowed, excluded, "set_path",
     )
     candidate_names = {row["_logical_name"] for row in candidates}
     seeds = [row for row in seeds if row["_logical_name"] not in candidate_names]
@@ -264,10 +273,10 @@ def load_origin(
     seeds, seed_total = _seed_sets(source, settings, allowed, warnings, checkpoint)
     manual, manual_total = _manual_sets(source, settings, allowed, warnings, checkpoint)
     unfiltered = len(candidates) + len(seeds) + len(manual)
-    quarantined = _quarantine_names(source)
-    candidates = _without_quarantine(candidates, quarantined)
-    seeds = _without_quarantine(seeds, quarantined)
-    manual = _without_quarantine(manual, quarantined)
+    quarantined = _quarantine_keys(source)
+    candidates = _without_quarantine(candidates, source, quarantined)
+    seeds = _without_quarantine(seeds, source, quarantined)
+    manual = _without_quarantine(manual, source, quarantined)
     quarantine_filtered_out = unfiltered - len(candidates) - len(seeds) - len(manual)
     if quarantine_filtered_out:
         checkpoint(

@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 from datetime import date
 from math import isfinite
 from heapq import merge
-from typing import Callable, Iterator, Sequence
+from typing import Any, Callable, Iterator, Sequence
 
 from portfolio_manager.grid_set import set_file_has_enabled_grid
 from portfolio_manager.ubs_portfolio import ClosedTrade
@@ -63,10 +63,21 @@ class SearchResult:
     strategies: tuple[PropStrategy, ...]
 
 
-def _is_grid_strategy(item: PropStrategy) -> bool:
-    path = Path(item.lab.set_path)
+def set_path_is_grid(value: Any) -> bool:
+    """Grid por el nombre del fichero o por traer la rejilla activada.
+
+    El inventario de la tarjeta y :func:`credible_pool` tienen que decidirlo
+    con el mismo criterio. Mientras sólo lo miraba el pool ejecutable, la
+    tarjeta prometía 1062 sets utilizables en RoboForex y la fase 1 descartaba
+    201 nada más empezar.
+    """
+    path = Path(str(value or ""))
     name_marks_grid = "grid" in path.stem.lower().replace("-", "_").split("_")
     return name_marks_grid or set_file_has_enabled_grid(path)
+
+
+def _is_grid_strategy(item: PropStrategy) -> bool:
+    return set_path_is_grid(item.lab.set_path)
 
 
 def executable_pool(

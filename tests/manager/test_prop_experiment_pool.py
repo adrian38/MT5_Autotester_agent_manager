@@ -21,6 +21,11 @@ class _Source:
         return []
 
     @staticmethod
+    def _match_key(value: object) -> str:
+        """La clave de ruta de ``PortfolioSource``, sin resolver el proyecto."""
+        return str(value or "").replace("/", "\\").casefold()
+
+    @staticmethod
     def saved_portfolios(_scope: str) -> dict[str, object]:
         return {"portfolios": [
             {"id": 7, "manual_portfolio": True},
@@ -188,12 +193,12 @@ class PropExperimentPoolTests(unittest.TestCase):
 
     def test_quarantine_excludes_every_source_before_deduplication(self) -> None:
         source = _Source()
-        source.quarantine_rows = lambda: [{"set_path": "C:/discarded/same.set"}]
+        source.quarantine_rows = lambda: [{"set_path": "C:/runs/13/same.set"}]
         settings = {
             "include_candidates": True, "include_seeds": True,
             "include_manual_portfolios": True, "symbol_families": [],
         }
-        discarded = _item("discarded", "C:/sets/robust_202601_same.set")
+        discarded = _item("discarded", "C:/runs/13/same.set")
         kept = _item("kept", "C:/sets/kept.set")
         discarded.symbol = kept.symbol = "EURUSD"
         with (
@@ -208,6 +213,54 @@ class PropExperimentPoolTests(unittest.TestCase):
         self.assertEqual(seeds, set())
         self.assertEqual(manual, set())
         self.assertEqual(meta["quarantine_filtered_out"], 2)
+
+    def test_a_homonym_from_another_run_survives_the_quarantine(self) -> None:
+        """El nombre del set no identifica la estrategia: la ruta sí.
+
+        ``..._g002_s001_v003.set`` son posiciones dentro de su run, así que dos
+        runs reutilizan el nombre para parámetros distintos. Comparando por
+        nombre, excluir uno tiraba al otro.
+        """
+        source = _Source()
+        source.quarantine_rows = lambda: [{"set_path": "C:/runs/13/same.set"}]
+        settings = {
+            "include_candidates": True, "include_seeds": True,
+            "include_manual_portfolios": True, "symbol_families": [],
+        }
+        homonym = _item("homonym", "C:/runs/15/same.set")
+        homonym.symbol = "EURUSD"
+        with (
+            mock.patch.object(pool, "_candidate_sets", return_value=([homonym], 1, 1)),
+            mock.patch.object(pool, "_seed_sets", return_value=([], 0)),
+            mock.patch.object(pool, "_manual_sets", return_value=([], 0)),
+        ):
+            loaded, _seeds, _manual, meta = pool.load_origin(
+                source, "ic", settings, [], lambda _message: None, None,
+            )
+        self.assertEqual([item.set_id for item, _broker, _node in loaded], ["homonym"])
+        self.assertEqual(meta["quarantine_filtered_out"], 0)
+
+    def test_the_inventory_discounts_grids_like_the_executable_pool(self) -> None:
+        """La tarjeta no puede prometer sets que ``credible_pool`` tira después."""
+        source = _Source()
+        source.candidate_rows = lambda **_kwargs: [
+            {"set_path": "C:/sets/a.set", "target_symbol": "EURUSD"},
+            {"set_path": "C:/sets/EURUSD_grid_b.set", "target_symbol": "EURUSD"},
+        ]
+        settings = {
+            "source_nodes": ["ic"], "symbol_families": ["Forex"],
+            "active_portfolios_only": False,
+        }
+        with (
+            mock.patch.object(pool, "accepted_seed_rows", return_value=[]),
+            mock.patch.object(pool, "_manual_member_rows", return_value=[]),
+        ):
+            without_grids = pool.load_inventory(settings, lambda _node_id: source)
+            with_grids = pool.load_inventory(
+                {**settings, "include_grids": True}, lambda _node_id: source,
+            )
+        self.assertEqual(without_grids["by_broker"][0]["candidates"], 1)
+        self.assertEqual(with_grids["by_broker"][0]["candidates"], 2)
 
 
 if __name__ == "__main__":

@@ -266,7 +266,7 @@ async function loadPoolInventory() {
   metrics.textContent = "Leyendo inventario admitido…";
   try {
     renderBrokerPool(await request("pool-inventory", {cache:"no-store"}));
-    note.textContent = "Total admitido por fases, familias, cuarentena y deduplicación; la fase 1 verificará cada OHLC.";
+    note.textContent = "Total admitido por fases, familias, cuarentena, grids y deduplicación; la fase 1 verificará cada OHLC.";
   } catch (error) {
     metrics.textContent = `No se pudo leer el inventario: ${error.message}`;
     note.textContent = "No hay un inventario disponible.";
