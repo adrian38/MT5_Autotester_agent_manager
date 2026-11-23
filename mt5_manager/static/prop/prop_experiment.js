@@ -237,6 +237,7 @@ function clearResult() {
   document.querySelector("#metrics").className = "metrics empty";
   document.querySelector("#metrics").textContent = "Aún no hay un resultado.";
   document.querySelector("#result-contract").hidden = true;
+  document.querySelector("#broker-pool-summary").hidden = true;
   document.querySelector("#allocation-table").hidden = true;
   document.querySelector("#allocations").innerHTML = "";
   document.querySelector("#warnings").innerHTML = "";
@@ -244,6 +245,16 @@ function clearResult() {
   document.querySelector("#phase-three-result").hidden = true;
   document.querySelector("#attempt-analysis").hidden = true;
   document.querySelector("#axis").textContent = "";
+}
+
+function renderBrokerPool(result) {
+  const rows = result.pool?.by_broker || [];
+  const panel = document.querySelector("#broker-pool-summary");
+  panel.hidden = !rows.length;
+  document.querySelector("#broker-pool-metrics").innerHTML = rows.map(row => metric(
+    `${row.broker} · ${row.candidates} generados FT6M + ${row.seeds} seeds UBS FT6M + ${row.manual} manuales`,
+    row.total,
+  )).join("");
 }
 
 function renderPhaseTwoStrategy(index) {
@@ -360,6 +371,7 @@ function renderResult(result) {
     + metric("Pool", `${result.pool.candidates} generadas FT6M + ${result.pool.seeds} seeds UBS FT6M + ${result.pool.manual || 0} manuales`);
   document.querySelector("#axis").textContent = `${result.axis.from} → ${result.axis.to}`;
   document.querySelector("#warnings").innerHTML = (result.warnings || []).map(item => `<div class="warning">${esc(item)}</div>`).join("");
+  renderBrokerPool(result);
   const labels = {seed:"Seed 6M", manual:"Manual", candidate:"Candidata"};
   const excluded = new Set(result.excluded_keys || []);
   document.querySelector("#allocations").innerHTML = result.allocations.map(item => `<tr><td><input type="checkbox" data-prop-exclude="${esc(item.key)}" ${excluded.has(item.key) ? "checked disabled" : ""} aria-label="Excluir ${esc(item.set_id)}"></td><td>${esc(item.origin)}</td><td><span class="badge ${esc(item.source_kind)}">${esc(labels[item.source_kind] || item.source_kind)}</span></td><td title="${esc(item.set_path)}">${esc(item.set_id)}</td><td><strong>${esc(item.symbol)}</strong></td><td>${esc(item.timeframe || "—")}</td><td><strong>${number(item.lot, 2)}</strong></td><td>${esc(item.units)}</td><td>${number(item.net_profit_contribution)}</td><td>${number(item.standalone_valley_dd)}</td><td>${number(item.margin_required)}</td></tr>`).join("");

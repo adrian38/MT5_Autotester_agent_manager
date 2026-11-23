@@ -36,6 +36,10 @@ con el menor tiempo de aprobación posible y respetando sus reglas y bankroll.
   desde ahí se habilita o deshabilita el símbolo y se cambia el estado de cada
   set usando las rutas existentes de exclusión y reclasificación. La decisión
   nunca se comparte entre brokers.
+- El resultado muestra el total utilizable por broker y su desglose entre
+  generadas FT6M, seeds UBS FT6M y manuales. Es el pool final después de
+  cuarentena, familias, deduplicación, credibilidad y cobertura OHLC de fase 1;
+  los brokers seleccionados sin estrategias válidas aparecen con cero.
 
 `PortfolioSource.saved_portfolios()` devuelve un estado con la lista dentro de
 `portfolios`, no la lista directamente. El primer recorrido de portafolios

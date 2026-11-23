@@ -91,6 +91,10 @@ input[readonly] { color: var(--lime); font-weight: 800; }
 .metric b { display: block; color: var(--lime); font-size: 25px; }
 .metric span { color: var(--muted); font-size: 12px; }
 .contract-metrics { padding-top: 2px; }
+.broker-pool-summary { margin-bottom: 18px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: #08110f; }
+.broker-pool-summary h3 { margin: 0; color: var(--ink); font-size: 20px; text-transform: none; letter-spacing: 0; }
+.broker-pool-summary p { color: var(--muted); }
+.broker-pool-summary .metrics { margin-bottom: 0; }
 .warning { border: 1px solid #6f5424; background: #2b2111; color: #ffd990; border-radius: 9px; padding: 10px; margin: 8px 0; }
 .attempt-analysis { margin-top: 20px; padding: 18px; border: 1px solid #3c6548; border-radius: 14px; background: #08110f; }
 .attempt-analysis h3 { margin: 0; color: var(--ink); font-size: 20px; text-transform: none; letter-spacing: 0; }

@@ -62,6 +62,8 @@ class PropExperimentRouteTests(unittest.TestCase):
         self.assertIn("Coste por prueba (€)", page)
         self.assertIn('id="include_grids"', page)
         self.assertIn('id="attempt-calendar"', page)
+        self.assertIn('id="broker-pool-summary"', page)
+        self.assertIn("Sets utilizables por broker", page)
         self.assertIn("Familias de símbolos", page)
         self.assertIn("portfolio_curve_view.js", page)
         self.assertIn("Plan de pruebas prop", page)

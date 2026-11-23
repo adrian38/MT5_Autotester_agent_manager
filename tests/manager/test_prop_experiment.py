@@ -18,6 +18,7 @@ from mt5_manager.prop.prop_experiment_engine import (
     simulate_trial,
 )
 from mt5_manager.prop.prop_experiment_reporting import attempt_analysis
+from mt5_manager.prop.prop_experiment_service import _pool_payload
 from mt5_manager.prop.prop_experiment_periods import (
     PHASE_ONE_FIRST_DAY, PHASE_ONE_FROM, PHASE_ONE_LAST_DAY, PHASE_ONE_TO,
     _calendar_axis, replay_window,
@@ -44,6 +45,24 @@ def _strategy(key: str, valley: float, series: tuple[float, ...]) -> LabStrategy
 
 
 class PropExperimentEngineTests(unittest.TestCase):
+    def test_pool_payload_reports_usable_sets_per_broker(self) -> None:
+        candidate = executable_pool([_strategy("candidate", 10.0, (1.0,))], set(), set())[0]
+        seed_lab = replace(_strategy("seed", 10.0, (1.0,)), origin="AXI", origin_node="axi")
+        seed = executable_pool([seed_lab], {"seed"}, set())[0]
+        payload = _pool_payload([candidate, seed], {
+            "ic": {"broker": "ICTRADING"}, "axi": {"broker": "AXI"},
+            "robo": {"broker": "ROBOFOREX"},
+        })
+        self.assertEqual(payload["strategies"], 2)
+        self.assertEqual(payload["by_broker"], [
+            {"node_id": "axi", "broker": "AXI", "candidates": 0, "seeds": 1,
+             "manual": 0, "total": 1},
+            {"node_id": "ic", "broker": "ICTRADING", "candidates": 1, "seeds": 0,
+             "manual": 0, "total": 1},
+            {"node_id": "robo", "broker": "ROBOFOREX", "candidates": 0, "seeds": 0,
+             "manual": 0, "total": 0},
+        ])
+
     def test_the_named_profiles_include_one_and_two_phase_programs(self) -> None:
         self.assertEqual(len(profile("ftmo-1-step").phases), 1)
         self.assertEqual(len(profile("ftmo-2-step").phases), 2)

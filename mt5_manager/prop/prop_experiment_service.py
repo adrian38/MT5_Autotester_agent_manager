@@ -31,7 +31,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "include_manual_portfolios": True, "active_portfolios_only": False,
     "include_grids": False, "auto_continue": False,
 }
-RESULT_SCHEMA_VERSION = 8
+RESULT_SCHEMA_VERSION = 9
 
 REPLAY_WARNING = (
     "La fase 1 usa sólo cierres OHLC desde 2025-01-01 hasta antes de 2026-06-01, "
@@ -96,6 +96,33 @@ def normalize_settings(raw: dict[str, Any], *, migrate: bool = False) -> dict[st
         "active_portfolios_only": bool(value["active_portfolios_only"]),
         "include_grids": bool(value["include_grids"]),
         "auto_continue": bool(value["auto_continue"]),
+    }
+
+
+def _pool_payload(strategies, origins: dict[str, Any]) -> dict[str, Any]:
+    rows = {
+        node_id: {
+            "node_id": node_id, "broker": str(meta.get("broker") or node_id),
+            "candidates": 0, "seeds": 0, "manual": 0, "total": 0,
+        }
+        for node_id, meta in origins.items()
+    }
+    for item in strategies:
+        node_id = item.lab.origin_node
+        row = rows.setdefault(node_id, {
+            "node_id": node_id, "broker": item.lab.origin,
+            "candidates": 0, "seeds": 0, "manual": 0, "total": 0,
+        })
+        field = {"candidate": "candidates", "seed": "seeds", "manual": "manual"}[item.source_kind]
+        row[field] += 1
+        row["total"] += 1
+    ordered = sorted(rows.values(), key=lambda row: (row["broker"], row["node_id"]))
+    return {
+        "strategies": sum(row["total"] for row in ordered),
+        "candidates": sum(row["candidates"] for row in ordered),
+        "seeds": sum(row["seeds"] for row in ordered),
+        "manual": sum(row["manual"] for row in ordered),
+        "by_broker": ordered,
     }
 
 
@@ -288,9 +315,10 @@ class PropExperimentCoordinator:
         executable, axis, coverage_warnings = replay_window(
             executable, full_axis, PHASE_ONE_FIRST_DAY, PHASE_ONE_LAST_DAY,
         )
-        pool_count = len(executable)
-        seed_count = sum(item.source_kind == "seed" for item in executable)
-        manual_count = sum(item.source_kind == "manual" for item in executable)
+        pool = _pool_payload(executable, origins)
+        pool_count = pool["strategies"]
+        seed_count = pool["seeds"]
+        manual_count = pool["manual"]
         self._checkpoint(
             f"Buscando con {pool_count} estrategias "
             f"({pool_count - seed_count - manual_count} generadas FT6M, "
@@ -305,11 +333,7 @@ class PropExperimentCoordinator:
             "kind": "prop_portfolio", "name": "Portafolio Prop", "revision": 1,
             "result_schema_version": RESULT_SCHEMA_VERSION,
             "profile": profile(settings["profile_id"]).payload(), "settings": settings,
-            "pool": {
-                "strategies": pool_count, "seeds": seed_count,
-                "manual": manual_count,
-                "candidates": pool_count - seed_count - manual_count,
-            },
+            "pool": pool,
             "origins": origins, "warnings": warnings + coverage_warnings + [REPLAY_WARNING],
             "axis": {"from": axis.days[0], "to": axis.days[-1], "days": axis.size},
             "phase_one": {"status": "completed", "from": PHASE_ONE_FROM, "to": PHASE_ONE_TO},
@@ -359,6 +383,7 @@ class PropExperimentCoordinator:
             "revision": int((self.result or {}).get("revision") or 1) + 1,
             "previous_revision": previous,
             "origins": origins, "warnings": warnings + coverage_warnings + [REPLAY_WARNING],
+            "pool": _pool_payload(executable, origins),
             "excluded_keys": sorted(excluded),
             "axis": {"from": axis.days[0], "to": axis.days[-1], "days": axis.size},
             "phase_two": {
