@@ -58,10 +58,17 @@ cualquier otro `NativeHistoryReportError` salía a la primera.
   y memoria remota— viven ahora en `live_audit/mt5_window_automation.py`, que
   es la capa de abajo y de la que heredan los dos exportadores. El módulo del
   informe reexporta las constantes porque MT4 las pide como `mt5_report.X`.
-- **Un uso de una sola terminal no tiene plan B.** `_export_isolated_native_report`
-  recorre los *otros* perfiles de terminal; con uno solo, la lista está vacía y
-  el primer tropiezo es definitivo. Por eso el reintento tiene que estar en la
-  misma terminal.
+- ~~**Un uso de una sola terminal no tiene plan B.**~~ **Cerrado el
+  2026-11-23.** `_export_isolated_native_report` recorría los *otros* perfiles
+  de terminal; con uno solo la lista estaba vacía y el primer tropiezo era
+  definitivo. Ahora los candidatos los arma `_native_report_candidates`, que
+  pone la **suya** delante de todas cuando su proceso ya no existe: ése es el
+  caso que los tres reintentos no pueden arreglar, porque esperan hasta
+  `timeout` una ventana que no puede volver. El cuerpo que abre una
+  instalación y le pide el HTML se extrajo a `_capture_native_report`, así que
+  relanzar la propia y saltar a otra son el mismo código. Con el proceso vivo
+  no se relanza, y la captura recuperada se marca
+  (`relaunched_capture_terminal`) y lo dice en el log.
 - Lo que no se sabe todavía: si en los fallos de AXI y Vantage había cero
   ventanas o dos. El censo del mensaje está puesto justo para contestarlo la
   próxima vez.

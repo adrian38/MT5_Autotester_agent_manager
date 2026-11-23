@@ -262,52 +262,89 @@ class _ExtractionMixin:
         except OSError:
             pass
 
+    def _capture_native_report(
+        self, *, mt5: Any, request: dict[str, Any], section: str,
+        profile: dict[str, str], login: str, server: str,
+        period_start: datetime, period_end: datetime, destination: Path,
+    ) -> dict[str, object]:
+        """Abre esa instalación con la cuenta real y le pide su HTML nativo."""
+        path = Path(str(profile.get("mt5_path") or ""))
+        before = self._terminal_pids_for_path(str(path))
+        launched: set[int] = set()
+        self._discard_rejected_report(destination)
+        try:
+            if not mt5.initialize(
+                path=str(path), login=int(login), password=request["source_password"],
+                server=server, timeout=60000,
+            ):
+                raise NativeHistoryReportError(str(mt5.last_error()))
+            launched = self._terminal_pids_for_path(str(path)) - before
+            self._remember_real_account_terminal(str(request["audit_key"]), section, profile)
+            info, terminal = mt5.account_info(), mt5.terminal_info()
+            if (
+                info is None or int(info.login) != int(login)
+                or str(getattr(info, "server", "") or "").casefold() != server.casefold()
+                or terminal is None or not bool(getattr(terminal, "connected", False))
+            ):
+                raise NativeHistoryReportError("la cuenta no quedó conectada")
+            self._synchronised_history(mt5, period_start, period_end)
+            metadata = export_native_history_report(
+                terminal_path=path, login=login, server=server,
+                period_start=period_start, period_end=period_end, destination=destination,
+            )
+            metadata["capture_terminal_profile"] = str(profile.get("name") or section)
+            return metadata
+        finally:
+            mt5.shutdown()
+            self._close_terminal_pids(launched or (self._terminal_pids_for_path(str(path)) - before))
+
+    def _native_report_candidates(
+        self, profile_name: str, primary_path: Path,
+    ) -> list[tuple[str, dict[str, str]]]:
+        """A quién pedirle el informe cuando el primer intento ya ha fallado.
+
+        Las otras instalaciones del agente y, delante de todas, **la suya** si
+        su proceso ya no existe. Ese es el caso que los tres reintentos de
+        `export_native_history_report` no pueden arreglar: se gastan esperando
+        hasta `timeout` una ventana que no puede volver, y un uso de una sola
+        terminal se quedaba sin nada más que intentar. Así murió la auditoría
+        del portafolio #2 de Vantage el 2026-11-22, 62 s esperando el proceso
+        que el agente de RoboForex le había cerrado.
+
+        Con el proceso vivo no se relanza: entonces el tropiezo fue de la GUI,
+        y por ahí ya han pasado esos tres intentos.
+        """
+        others = self._native_report_profiles(primary_path)
+        if self._terminal_pids_for_path(str(primary_path)):
+            return others
+        return [(profile_name, {"name": profile_name, "mt5_path": str(primary_path)}), *others]
+
     def _export_isolated_native_report(
-        self, *, mt5: Any, request: dict[str, Any], excluded_path: Path,
+        self, *, mt5: Any, request: dict[str, Any], primary_path: Path,
         login: str, server: str, period_start: datetime, period_end: datetime,
         destination: Path, primary_error: NativeHistoryReportError, profile_name: str,
     ) -> dict[str, object]:
         mt5.shutdown()
         errors = [f"{profile_name}: {primary_error}"]
-        for section, profile in self._native_report_profiles(excluded_path):
-            path = Path(str(profile.get("mt5_path") or ""))
-            before = self._terminal_pids_for_path(str(path))
-            launched: set[int] = set()
-            self._discard_rejected_report(destination)
+        candidates = self._native_report_candidates(profile_name, primary_path)
+        for section, profile in candidates:
             try:
-                if not mt5.initialize(
-                    path=str(path), login=int(login), password=request["source_password"],
-                    server=server, timeout=60000,
-                ):
-                    errors.append(f"{profile.get('name') or section}: {mt5.last_error()}")
-                    continue
-                launched = self._terminal_pids_for_path(str(path)) - before
-                self._remember_real_account_terminal(str(request["audit_key"]), section, profile)
-                info, terminal = mt5.account_info(), mt5.terminal_info()
-                if (
-                    info is None or int(info.login) != int(login)
-                    or str(getattr(info, "server", "") or "").casefold() != server.casefold()
-                    or terminal is None or not bool(getattr(terminal, "connected", False))
-                ):
-                    errors.append(f"{profile.get('name') or section}: la cuenta no quedó conectada")
-                    continue
-                self._synchronised_history(mt5, period_start, period_end)
-                metadata = export_native_history_report(
-                    terminal_path=path, login=login, server=server,
-                    period_start=period_start, period_end=period_end, destination=destination,
+                metadata = self._capture_native_report(
+                    mt5=mt5, request=request, section=section, profile=profile,
+                    login=login, server=server, period_start=period_start,
+                    period_end=period_end, destination=destination,
                 )
-                metadata["capture_terminal_profile"] = str(profile.get("name") or section)
-                metadata["isolated_capture_terminal"] = True
-                return metadata
             except Exception as exc:
                 errors.append(f"{profile.get('name') or section}: {exc}")
-            finally:
-                mt5.shutdown()
-                self._close_terminal_pids(launched or (self._terminal_pids_for_path(str(path)) - before))
+                continue
+            relaunched = str(profile.get("mt5_path") or "") == str(primary_path)
+            key = "relaunched_capture_terminal" if relaunched else "isolated_capture_terminal"
+            metadata[key] = True
+            return metadata
         raise NativeHistoryReportError(
             (
                 "No se pudo obtener el HTML nativo y el uso corre con una sola "
-                "terminal, así que no hay ninguna otra donde reintentarlo: "
+                "terminal, así que no quedaba otra instalación donde recuperarlo: "
                 if self.single_terminal_audit else
                 "No se pudo obtener el HTML nativo en ninguna terminal IC accesible: "
             )
@@ -328,7 +365,7 @@ class _ExtractionMixin:
             return metadata
         except NativeHistoryReportError as primary_error:
             return self._export_isolated_native_report(
-                mt5=mt5, request=request, excluded_path=terminal_path, login=login, server=server,
+                mt5=mt5, request=request, primary_path=terminal_path, login=login, server=server,
                 period_start=period_start, period_end=period_end, destination=destination,
                 primary_error=primary_error, profile_name=profile_name,
             )

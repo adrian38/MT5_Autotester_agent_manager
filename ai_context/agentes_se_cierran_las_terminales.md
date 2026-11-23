@@ -151,6 +151,12 @@ no deja que una vuelva a adelantar a la otra.
   ejecutable en su sitio, así que el cambio no altera a ninguno hoy: IC
   `Terminal.2`, AXI `Terminal.9`, RoboForex `Terminal.2`, Vantage
   `Terminal.1`.
-- **Sigue sin haber plan B con una sola terminal.** Si la terminal muere a
-  mitad de la exportación, los dos intentos siguientes se gastan esperando una
-  ventana que no puede volver: nadie la relanza. Eso no lo arregla este cambio.
+- ~~**Sigue sin haber plan B con una sola terminal.**~~ **Cerrado el
+  2026-11-23.** Si el proceso de la terminal ya no existe cuando falla el
+  primer intento, `_native_report_candidates` la pone **delante** de las demás
+  instalaciones y `_capture_native_report` la relanza con la cuenta real, que
+  es lo mismo que ya se hacía con las ajenas. Con el proceso vivo no se
+  relanza: entonces el tropiezo fue de la GUI y por ahí ya han pasado los tres
+  intentos de `export_native_history_report`. Cuando hace falta relanzar, la
+  línea del log lo dice («relanzada: su proceso ya no existía»), para que una
+  captura recuperada no se lea igual que una normal.

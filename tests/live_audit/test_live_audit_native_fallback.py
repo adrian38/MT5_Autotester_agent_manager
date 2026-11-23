@@ -114,7 +114,9 @@ class IsolatedReportDestinationTests(unittest.TestCase):
         controller._native_report_profiles = lambda _excluded: [
             ("Terminal.2", {"name": "MT5 respaldo", "mt5_path": r"C:\IC\2\terminal64.exe"}),
         ]
-        controller._terminal_pids_for_path = lambda _path: set()
+        # Con el proceso de la principal vivo, el plan B es la otra
+        # instalación y no un relanzamiento de la suya.
+        controller._terminal_pids_for_path = lambda _path: {4242}
         controller._close_terminal_pids = lambda _pids: None
         controller._remember_real_account_terminal = lambda *_args: None
         controller._synchronised_history = lambda *_args: ([], {})
@@ -145,7 +147,7 @@ class IsolatedReportDestinationTests(unittest.TestCase):
             ):
                 metadata = controller._export_isolated_native_report(
                     mt5=mt5, request={"audit_key": "audit-1", "source_password": "clave"},
-                    excluded_path=Path(r"C:\IC\1\terminal64.exe"), login="111",
+                    primary_path=Path(r"C:\IC\1\terminal64.exe"), login="111",
                     server="IC-Real", period_start=PERIOD_START, period_end=PERIOD_END,
                     destination=destination,
                     primary_error=NativeHistoryReportError(
@@ -159,6 +161,77 @@ class IsolatedReportDestinationTests(unittest.TestCase):
         self.assertTrue(metadata["isolated_capture_terminal"])
         self.assertEqual(metadata["capture_terminal_profile"], "MT5 respaldo")
         self.assertEqual(written, "informe de la cuenta buena")
+
+
+class RelaunchedTerminalTests(unittest.TestCase):
+    """Un uso de una sola terminal no tenía plan B si su terminal moría.
+
+    Los tres reintentos de `export_native_history_report` se gastan esperando
+    hasta `timeout` una ventana que no puede volver: el 2026-11-22 la auditoría
+    del portafolio #2 de Vantage murió así, 62 s esperando el proceso que el
+    agente de RoboForex le había cerrado. Relanzar la instalación arregla ese
+    caso, y sólo ése: con el proceso vivo el tropiezo fue de la GUI, y por ahí
+    ya se pasó tres veces.
+    """
+
+    PRIMARY = Path(r"C:\Vantage\terminal64.exe")
+
+    @staticmethod
+    def _controller(root: Path, *, alive: bool) -> LiveAuditController:
+        controller = LiveAuditController(FakeOwner("idle"), root)
+        controller.single_terminal_audit = True
+        # Una sola instalación: sin el relanzamiento no hay ningún candidato.
+        controller._native_report_profiles = lambda _primary: []
+        controller._terminal_pids_for_path = lambda _path: {7} if alive else set()
+        controller._close_terminal_pids = lambda _pids: None
+        controller._remember_real_account_terminal = lambda *_args: None
+        controller._synchronised_history = lambda *_args: ([], {})
+        return controller
+
+    def _export(self, controller: LiveAuditController, destination: Path, exporting) -> dict:
+        mt5 = FakeMt5()
+        mt5.initialize = lambda **_kwargs: True
+        with mock.patch(
+            "mt5_manager.live_audit.live_audit_extraction.export_native_history_report",
+            side_effect=exporting,
+        ):
+            return controller._export_isolated_native_report(
+                mt5=mt5, request={"audit_key": "audit-2", "source_password": "clave"},
+                primary_path=self.PRIMARY, login="111", server="IC-Real",
+                period_start=PERIOD_START, period_end=PERIOD_END, destination=destination,
+                primary_error=NativeHistoryReportError(
+                    "No se identificó de forma unívoca la ventana MT5 de 111 en "
+                    "IC-Real: el terminal no tenía ninguna ventana abierta"
+                ),
+                profile_name="MT5 principal",
+            )
+
+    def test_a_terminal_that_died_is_relaunched_and_asked_again(self) -> None:
+        asked: list[Path] = []
+
+        def exporting(**kwargs) -> dict[str, object]:
+            asked.append(Path(kwargs["terminal_path"]))
+            return {"native_terminal_report": True}
+
+        with tempfile.TemporaryDirectory() as folder:
+            controller = self._controller(Path(folder), alive=False)
+            metadata = self._export(controller, Path(folder) / "real.html", exporting)
+
+        self.assertEqual(asked, [self.PRIMARY])
+        self.assertTrue(metadata["relaunched_capture_terminal"])
+        self.assertNotIn("isolated_capture_terminal", metadata)
+        self.assertEqual(metadata["capture_terminal_profile"], "MT5 principal")
+
+    def test_a_gui_stumble_with_the_process_alive_is_not_relaunched(self) -> None:
+        asked: list[Path] = []
+
+        with tempfile.TemporaryDirectory() as folder:
+            controller = self._controller(Path(folder), alive=True)
+            with self.assertRaises(NativeHistoryReportError) as raised:
+                self._export(controller, Path(folder) / "real.html", asked.append)
+
+        self.assertEqual(asked, [])
+        self.assertIn("ninguna ventana abierta", str(raised.exception))
 
 
 class NativeReportFallbackTests(LiveAuditEngineTestCase):

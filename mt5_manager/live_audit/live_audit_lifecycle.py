@@ -158,7 +158,10 @@ class _LifecycleMixin:
             f"{real_history_detail.get('positions_recovered', 0)} apertura(s) anterior(es) recuperada(s) "
             f"tras {real_history_detail.get('sync_attempts', 0)} consulta(s). "
             f"HTML nativo {real_account_report.get('filename')} capturado por "
-            f"{real_account_report.get('capture_terminal_profile') or account.get('terminal_profile')} "
+            f"{real_account_report.get('capture_terminal_profile') or account.get('terminal_profile')}"
+            # Sin esto, una captura que necesitó relanzar el terminal se lee
+            # igual que una normal y nadie se entera de que el proceso murió.
+            f"{' (relanzada: su proceso ya no existía)' if real_account_report.get('relaunched_capture_terminal') else ''} "
             f"con periodo {real_account_report.get('period_mode')} "
             f"{real_account_report.get('period_start_date')} a {real_account_report.get('period_end_date')}, "
             f"{real_account_report.get('bytes', 0)} bytes, sha256 "
