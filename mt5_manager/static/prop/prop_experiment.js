@@ -121,6 +121,7 @@ function renderConfig(data) {
   renderState(data.state);
   markLoaded();
   loadBrokerControls();
+  loadPoolInventory();
 }
 
 function brokerCard(node, state) {
@@ -237,7 +238,6 @@ function clearResult() {
   document.querySelector("#metrics").className = "metrics empty";
   document.querySelector("#metrics").textContent = "Aún no hay un resultado.";
   document.querySelector("#result-contract").hidden = true;
-  document.querySelector("#broker-pool-summary").hidden = true;
   document.querySelector("#allocation-table").hidden = true;
   document.querySelector("#allocations").innerHTML = "";
   document.querySelector("#warnings").innerHTML = "";
@@ -250,11 +250,27 @@ function clearResult() {
 function renderBrokerPool(result) {
   const rows = result.pool?.by_broker || [];
   const panel = document.querySelector("#broker-pool-summary");
-  panel.hidden = !rows.length;
-  document.querySelector("#broker-pool-metrics").innerHTML = rows.map(row => metric(
-    `${row.broker} · ${row.candidates} generados FT6M + ${row.seeds} seeds UBS FT6M + ${row.manual} manuales`,
+  const metrics = document.querySelector("#broker-pool-metrics");
+  panel.hidden = false;
+  metrics.className = rows.length ? "metrics" : "metrics empty";
+  metrics.innerHTML = rows.length ? rows.map(row => metric(
+    `${row.broker} · ${row.candidates} generados aceptados FT6M + ${row.seeds} seeds UBS aceptadas FT6M + ${row.manual} manuales sin fases`,
     row.total,
-  )).join("");
+  )).join("") : "Ningún set utilizable con los ajustes actuales.";
+}
+
+async function loadPoolInventory() {
+  const metrics = document.querySelector("#broker-pool-metrics");
+  const note = document.querySelector("#broker-pool-note");
+  metrics.className = "metrics empty";
+  metrics.textContent = "Leyendo inventario admitido…";
+  try {
+    renderBrokerPool(await request("pool-inventory", {cache:"no-store"}));
+    note.textContent = "Total admitido por fases, familias, cuarentena y deduplicación; la fase 1 verificará cada OHLC.";
+  } catch (error) {
+    metrics.textContent = `No se pudo leer el inventario: ${error.message}`;
+    note.textContent = "No hay un inventario disponible.";
+  }
 }
 
 function renderPhaseTwoStrategy(index) {
@@ -368,10 +384,9 @@ function renderResult(result) {
   document.querySelector("#metrics").innerHTML = metric("Probabilidad histórica", `${number(evaluation.pass_rate, 1)}%`)
     + metric("Trials aprobados", `${evaluation.passed}/${evaluation.trials}`)
     + metric("Mediana para aprobar", evaluation.median_days ? `${number(evaluation.median_days, 0)} días` : "—")
-    + metric("Pool", `${result.pool.candidates} generadas FT6M + ${result.pool.seeds} seeds UBS FT6M + ${result.pool.manual || 0} manuales`);
+    + metric("Pool", `${result.pool.candidates} generadas aceptadas FT6M + ${result.pool.seeds} seeds UBS aceptadas FT6M + ${result.pool.manual || 0} manuales sin fases`);
   document.querySelector("#axis").textContent = `${result.axis.from} → ${result.axis.to}`;
   document.querySelector("#warnings").innerHTML = (result.warnings || []).map(item => `<div class="warning">${esc(item)}</div>`).join("");
-  renderBrokerPool(result);
   const labels = {seed:"Seed 6M", manual:"Manual", candidate:"Candidata"};
   const excluded = new Set(result.excluded_keys || []);
   document.querySelector("#allocations").innerHTML = result.allocations.map(item => `<tr><td><input type="checkbox" data-prop-exclude="${esc(item.key)}" ${excluded.has(item.key) ? "checked disabled" : ""} aria-label="Excluir ${esc(item.set_id)}"></td><td>${esc(item.origin)}</td><td><span class="badge ${esc(item.source_kind)}">${esc(labels[item.source_kind] || item.source_kind)}</span></td><td title="${esc(item.set_path)}">${esc(item.set_id)}</td><td><strong>${esc(item.symbol)}</strong></td><td>${esc(item.timeframe || "—")}</td><td><strong>${number(item.lot, 2)}</strong></td><td>${esc(item.units)}</td><td>${number(item.net_profit_contribution)}</td><td>${number(item.standalone_valley_dd)}</td><td>${number(item.margin_required)}</td></tr>`).join("");
@@ -453,7 +468,10 @@ async function refresh() {
 async function post(action, body={}) {
   try {
     const payload = await request(action, {method:"POST", body:JSON.stringify(body)});
-    if (payload.settings) fillForm(payload.settings); else renderState(payload);
+    if (payload.settings) {
+      fillForm(payload.settings);
+      loadPoolInventory();
+    } else renderState(payload);
   } catch (error) { document.querySelector("#status").textContent = error.message; }
 }
 

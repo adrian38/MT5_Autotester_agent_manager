@@ -165,19 +165,23 @@ class PortfolioInventoryTests(unittest.TestCase):
                     create table candidates(id integer primary key,set_path text,symbol text,target_symbol text,period text,family text,report_path text,status text);
                     create table candidate_robustness(candidate_id integer,report_path text,status text);
                     create table candidate_final_tick(candidate_id integer,real_tick_report_path text,from_date text,to_date text,status text);
-                    create table candidate_final_tick_6m(candidate_id integer,ohlc_report_path text,real_tick_report_path text,from_date text,to_date text,status text);
+                    create table candidate_final_tick_6m(candidate_id integer,ohlc_report_path text,real_tick_report_path text,from_date text,to_date text,status text,accepted integer);
                     insert into candidates values(1,'sets/a.set','EURUSD','EURUSD','H1','f','reports/a.html','accepted');
                     insert into candidates values(2,'sets/b.set','GBPUSD','GBPUSD','H1','f','reports/b.html','accepted');
                     insert into candidates values(3,'sets/c.set','USDJPY','USDJPY','H1','f','reports/c.html','accepted');
+                    insert into candidates values(4,'sets/d.set','AUDUSD','AUDUSD','H1','f','reports/d.html','accepted');
                     insert into candidate_robustness values(1,'reports/a_oos.html','accepted');
                     insert into candidate_robustness values(2,'reports/b_oos.html','accepted');
                     insert into candidate_robustness values(3,'reports/c_oos.html','accepted');
+                    insert into candidate_robustness values(4,'reports/d_oos.html','accepted');
                     insert into candidate_final_tick values(1,'','2026.05.01','2026.05.31','pending_ohlc_trades');
                     insert into candidate_final_tick values(2,'','2026.05.01','2026.05.31','rejected');
                     insert into candidate_final_tick values(3,'','2026.05.01','2026.05.31','pending_ohlc_trades');
-                    insert into candidate_final_tick_6m values(1,'','','2026.01.01','2026.06.30','accepted');
-                    insert into candidate_final_tick_6m values(2,'','','2026.01.01','2026.06.30','accepted');
-                    insert into candidate_final_tick_6m values(3,'','','2026.01.01','2026.06.30','rejected');
+                    insert into candidate_final_tick values(4,'','2026.05.01','2026.05.31','accepted');
+                    insert into candidate_final_tick_6m values(1,'','','2026.01.01','2026.06.30','accepted',1);
+                    insert into candidate_final_tick_6m values(2,'','','2026.01.01','2026.06.30','accepted',1);
+                    insert into candidate_final_tick_6m values(3,'','','2026.01.01','2026.06.30','rejected',0);
+                    insert into candidate_final_tick_6m values(4,'','','2026.01.01','2026.06.30','accepted',0);
                     """
                 )
                 conn.commit()
@@ -190,7 +194,8 @@ class PortfolioInventoryTests(unittest.TestCase):
             )
             rows = source.candidate_rows(include_quarantined=False)
             # 1 pasa: 6M accepted aunque el tick corto quedara en pending_ohlc_trades.
-            # 2 no (tick corto rechazado), 3 tampoco (6M rechazado).
+            # 2 no (tick corto rechazado), 3 tampoco (6M rechazado) y 4 no:
+            # llegó a 6M con status accepted, pero su veredicto accepted sigue a cero.
             self.assertEqual([row["source_candidate_id"] for row in rows], [1])
             # Sin reporte de tick corto la fila entra sin tramo continuo 2020-hoy.
             self.assertEqual(rows[0]["full_history_report_path"], "")

@@ -153,6 +153,10 @@ def _accepted_candidate_sql(conn: sqlite3.Connection) -> str | None:
     # como las metricas: una memoria vieja puede no tener la columna, y sin ella
     # la fila sigue sirviendo para todo lo demas.
     seed_path_sql = _sql_when(_has_column(conn, "candidates", "seed_path"), "c.seed_path", "null")
+    ft6_accepted_sql = (
+        "and ft6.accepted=1"
+        if _has_column(conn, "candidate_final_tick_6m", "accepted") else ""
+    )
     return f"""
         select ? as account_type, ? || ':' || c.id as candidate_id,
                c.id as source_candidate_id, c.set_path, c.symbol, c.target_symbol,
@@ -169,7 +173,7 @@ def _accepted_candidate_sql(conn: sqlite3.Connection) -> str | None:
         join candidate_final_tick_6m ft6 on ft6.candidate_id=c.id
         where c.status='accepted' and cr.status='accepted'
         and ft.status in ('accepted','pending_ohlc_trades')
-        and ft6.status='accepted'
+        and ft6.status='accepted' {ft6_accepted_sql}
         order by c.id
         """
 

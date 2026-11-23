@@ -64,6 +64,8 @@ class PropExperimentRouteTests(unittest.TestCase):
         self.assertIn('id="attempt-calendar"', page)
         self.assertIn('id="broker-pool-summary"', page)
         self.assertIn("Sets utilizables por broker", page)
+        self.assertNotIn('id="broker-pool-summary" class="broker-pool-summary" hidden', page)
+        self.assertIn("Calculando inventario utilizable", page)
         self.assertIn("Familias de símbolos", page)
         self.assertIn("portfolio_curve_view.js", page)
         self.assertIn("Plan de pruebas prop", page)
@@ -91,6 +93,10 @@ class PropExperimentRouteTests(unittest.TestCase):
         status, script = self.request("/prop_experiment.js")
         self.assertEqual(status, 200)
         self.assertNotIn('querySelector("#portfolio-chart")', script)
+        self.assertIn('request("pool-inventory"', script)
+        self.assertIn("loadPoolInventory();", script)
+        self.assertIn("generados aceptados FT6M", script)
+        self.assertIn("seeds UBS aceptadas FT6M", script)
         status, styles = self.request("/prop_experiment.css")
         self.assertEqual(status, 200)
         self.assertNotIn("details { margin-top", styles)
@@ -118,6 +124,13 @@ class PropExperimentRouteTests(unittest.TestCase):
         self.assertFalse(config["settings"]["auto_continue"])
         self.assertEqual([item["id"] for item in config["phases"]], [1, 2, 3])
         self.assertNotIn("horizon_months", config["settings"])
+
+    def test_pool_inventory_is_available_before_phase_one(self) -> None:
+        expected = {"pool": {"strategies": 3, "by_broker": []}, "warnings": [], "axis": None}
+        self.manager.prop_experiments.pool_inventory = lambda: expected
+        status, payload = self.request("/api/prop-experiment/pool-inventory")
+        self.assertEqual(status, 200)
+        self.assertEqual(payload, expected)
 
     def test_vantage_is_visible_but_never_selected(self) -> None:
         config = self.request("/api/prop-experiment/config")[1]

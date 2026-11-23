@@ -39,6 +39,34 @@ def _item(set_id: str, set_path: str) -> SimpleNamespace:
 
 
 class PropExperimentPoolTests(unittest.TestCase):
+    def test_opening_inventory_counts_admitted_sets_without_parsing_reports(self) -> None:
+        source = _Source()
+        source.candidate_rows = lambda **_kwargs: [
+            {"set_path": "C:/sets/a.set", "target_symbol": "EURUSD"},
+        ]
+        seeds = [
+            {"seed_path": "C:/sets/robust_000001_a.set", "symbol": "EURUSD"},
+            {"seed_path": "C:/sets/b.set", "symbol": "EURUSD"},
+        ]
+        manuals = [
+            {"set_path": "C:/sets/b.set", "symbol": "EURUSD"},
+            {"set_path": "C:/sets/c.set", "symbol": "EURUSD"},
+        ]
+        with (
+            mock.patch.object(pool, "accepted_seed_rows", return_value=seeds),
+            mock.patch.object(pool, "_manual_member_rows", return_value=manuals),
+        ):
+            result = pool.load_inventory(
+                {"source_nodes": ["ic"], "symbol_families": ["Forex"],
+                 "active_portfolios_only": False},
+                lambda _node_id: source,
+            )
+        self.assertEqual(result["strategies"], 3)
+        self.assertEqual(result["by_broker"][0], {
+            "node_id": "ic", "broker": "TEST", "candidates": 1,
+            "seeds": 1, "manual": 1, "total": 3,
+        })
+
     def test_symbol_families_filter_the_funnel_before_search(self) -> None:
         items = [
             SimpleNamespace(symbol="EURUSD"),

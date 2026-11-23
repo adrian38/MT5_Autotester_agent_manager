@@ -14,6 +14,9 @@ con el menor tiempo de aprobación posible y respetando sus reglas y bankroll.
   etapas aceptadas de `candidate_rows`, incluido Final Tick 6M; seeds UBS que
   tienen aceptada su fase UBS Final Tick 6M; y estrategias de portafolios
   manuales, que son la única excepción sin fases.
+- En memorias que tienen la columna de veredicto, Final Tick 6M exige las dos
+  condiciones: `status='accepted'` y `accepted=1`. Haber creado o terminado la
+  fila de la fase no basta para entrar en el conteo ni en el pool.
 - La fuente seed exige además `seed_final_tick_6m.status='accepted'` y
   `accepted=1`, con la misma huella `seed_mtime`/`seed_size` que el sondeo
   `seed_final_tick`. No significa «toda seed aceptada».
@@ -40,6 +43,11 @@ con el menor tiempo de aprobación posible y respetando sus reglas y bankroll.
   generadas FT6M, seeds UBS FT6M y manuales. Es el pool final después de
   cuarentena, familias, deduplicación, credibilidad y cobertura OHLC de fase 1;
   los brokers seleccionados sin estrategias válidas aparecen con cero.
+- Ese resumen no espera a que termine una búsqueda: al abrir la pantalla llama
+  a `pool-inventory` para mostrar enseguida las admisiones por broker, sin abrir
+  miles de informes. Cuenta fases, familias, símbolos deshabilitados, cuarentena
+  y deduplicación. La fase 1 valida después credibilidad y cobertura OHLC;
+  guardar ajustes vuelve a calcular el inventario visible.
 
 `PortfolioSource.saved_portfolios()` devuelve un estado con la lista dentro de
 `portfolios`, no la lista directamente. El primer recorrido de portafolios

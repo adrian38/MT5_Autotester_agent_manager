@@ -17,7 +17,7 @@ from .prop_experiment_periods import (
     PHASE_THREE_FROM, PHASE_THREE_TO,
     PHASE_TWO_FROM, PHASE_TWO_TO, replay_window,
 )
-from .prop_experiment_pool import load_pool
+from .prop_experiment_pool import load_inventory, load_pool
 from .prop_experiment_reporting import attempt_analysis
 from .prop_profiles import EXPERIMENT_PROFILE_IDS, profile, profiles_payload
 from .prop_experiment_validation import NodeRequest, validate_portfolio
@@ -217,6 +217,13 @@ class PropExperimentCoordinator:
         with self.lock:
             return {"lines": list(self.log_lines)[-max(lines, 1):]}
 
+    def pool_inventory(self) -> dict[str, Any]:
+        """Cuenta rápidamente la admisión por fases antes de abrir los informes OHLC."""
+        return {"pool": load_inventory(
+            self.settings(), self.source_factory,
+            self.active_members_factory, self.symbol_settings_factory,
+        )}
+
     def _note(self, message: str) -> None:
         with self.lock:
             self.log_lines.append(f"{time.strftime('%H:%M:%S')} {message}")
@@ -321,8 +328,8 @@ class PropExperimentCoordinator:
         manual_count = pool["manual"]
         self._checkpoint(
             f"Buscando con {pool_count} estrategias "
-            f"({pool_count - seed_count - manual_count} generadas FT6M, "
-            f"{seed_count} seeds UBS FT6M, {manual_count} manuales)"
+            f"({pool_count - seed_count - manual_count} generadas aceptadas FT6M, "
+            f"{seed_count} seeds UBS aceptadas FT6M, {manual_count} manuales sin fases)"
         )
         found = search(executable, axis, profile(settings["profile_id"]), settings, self._checkpoint)
         payload = result_payload(found, axis, float(settings["capital"]))

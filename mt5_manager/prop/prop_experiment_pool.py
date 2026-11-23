@@ -17,7 +17,7 @@ from portfolio_manager.ubs_portfolio import (
 )
 
 from ..experiment import experiment_lab as lab
-from ..experiment.experiment_seed_sets import load_seed_sets
+from ..experiment.experiment_seed_sets import accepted_seed_rows, load_seed_sets
 from ..portfolio.portfolio_coordinator_core import _relocated_member
 from ..portfolio.portfolio_identity import _allocation_source_rows
 from ..portfolio.portfolio_service import build_margin_model, cached_report
@@ -166,6 +166,74 @@ def _filter_symbol_families(items: list[Any], settings: dict[str, Any]) -> list[
         if str(item.symbol).casefold() not in disabled
         and (not allowed or portfolio_group_key(item.symbol) in allowed)
     ]
+
+
+def _inventory_rows(rows, settings, allowed, quarantined, path_field):
+    families = set(settings.get("symbol_families") or [])
+    disabled = {str(item).casefold() for item in settings.get("disabled_symbols") or []}
+    result = []
+    for raw in rows:
+        row = dict(raw)
+        path = row.get(path_field)
+        name, logical = _set_name(path), _logical_set_name(path)
+        symbol = str(
+            row.get("executable_symbol") or row.get("target_symbol") or row.get("symbol") or ""
+        )
+        if allowed is not None and name not in allowed:
+            continue
+        if name in quarantined or logical in quarantined or symbol.casefold() in disabled:
+            continue
+        if families and portfolio_group_key(symbol) not in families:
+            continue
+        row["_logical_name"] = logical
+        result.append(row)
+    return result
+
+
+def _source_inventory(source, settings, allowed) -> dict[str, Any]:
+    quarantined = _quarantine_names(source)
+    candidates = _inventory_rows(
+        source.candidate_rows(include_quarantined=False), settings, allowed, quarantined, "set_path",
+    )
+    seeds = _inventory_rows(
+        accepted_seed_rows(source, require_final_tick_6m=True),
+        settings, allowed, quarantined, "seed_path",
+    )
+    manual = _inventory_rows(
+        _manual_member_rows(source, allowed), settings, allowed, quarantined, "set_path",
+    )
+    candidate_names = {row["_logical_name"] for row in candidates}
+    seeds = [row for row in seeds if row["_logical_name"] not in candidate_names]
+    used = candidate_names | {row["_logical_name"] for row in seeds}
+    manual = [row for row in manual if row["_logical_name"] not in used]
+    return {
+        "candidates": len(candidates), "seeds": len(seeds), "manual": len(manual),
+        "total": len(candidates) + len(seeds) + len(manual),
+    }
+
+
+def load_inventory(
+    settings, source_factory, active_members_factory=None, symbol_settings_factory=None,
+) -> dict[str, Any]:
+    rows = []
+    for node_id in settings["source_nodes"]:
+        try:
+            source = source_factory(node_id)
+            origin_settings = dict(settings)
+            if symbol_settings_factory is not None:
+                origin_settings["disabled_symbols"] = (
+                    symbol_settings_factory(node_id).get("disabled_symbols") or []
+                )
+            allowed = _allowed_names(origin_settings, node_id, source, active_members_factory)
+            counts = _source_inventory(source, origin_settings, allowed)
+            rows.append({"node_id": node_id, "broker": source.broker, **counts})
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            rows.append({
+                "node_id": node_id, "broker": node_id, "candidates": 0,
+                "seeds": 0, "manual": 0, "total": 0, "error": str(exc),
+            })
+    rows.sort(key=lambda row: (row["broker"], row["node_id"]))
+    return {"strategies": sum(row["total"] for row in rows), "by_broker": rows}
 
 
 def _prop_margin_model(source: Any, settings: dict[str, Any]) -> Any:

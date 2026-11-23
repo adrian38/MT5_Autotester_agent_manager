@@ -30,6 +30,9 @@ def handle_get(handler: Any, parsed: urllib.parse.ParseResult) -> bool:
         if action == "state":
             handler._send_json(200, coordinator.state())
             return True
+        if action == "pool-inventory":
+            handler._send_json(200, coordinator.pool_inventory())
+            return True
         if action == "log":
             query = urllib.parse.parse_qs(parsed.query)
             lines = safe_int(query.get("lines", [400])[0], 400, minimum=1, maximum=4000)
