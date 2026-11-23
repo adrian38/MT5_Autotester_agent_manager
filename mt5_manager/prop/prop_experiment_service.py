@@ -30,7 +30,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "include_manual_portfolios": True, "active_portfolios_only": False,
     "include_grids": False, "auto_continue": False,
 }
-RESULT_SCHEMA_VERSION = 4
+RESULT_SCHEMA_VERSION = 5
 
 
 class PropExperimentCancelled(RuntimeError):

@@ -64,7 +64,7 @@ def simulate_monthly_campaign(
     series: Sequence[float | GrowthDay], days: Sequence[str], rules: HyperGrowthRules,
     bankroll_eur: float, fee_eur: float,
 ) -> MonthlyCampaign:
-    """Compra intentos consecutivos sin superar el presupuesto de su mes de inicio."""
+    """Compra pruebas consecutivas sin superar el presupuesto de su mes de inicio."""
     if len(series) != len(days):
         raise ValueError("La serie Hyper Growth y su calendario no tienen la misma longitud")
     attempts: list[BudgetAttempt] = []

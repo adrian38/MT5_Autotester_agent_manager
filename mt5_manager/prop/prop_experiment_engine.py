@@ -41,9 +41,9 @@ class Evaluation:
     failures: dict[str, int]
 
     @property
-    def score(self) -> tuple[float, float, float]:
+    def score(self) -> tuple[int, float, float, float]:
         days = self.median_days if self.median_days else 1e9
-        return self.pass_rate, self.mean_peak_progress_pct, -days
+        return self.passed, -days, self.pass_rate, self.mean_peak_progress_pct
 
 
 @dataclass(frozen=True)
@@ -280,7 +280,8 @@ def search(
         step += 1
         if progress:
             progress(
-                f"Búsqueda {step}: {current.pass_rate:.1f}% · "
+                f"Búsqueda {step}: {current.passed} pasadas · "
+                f"mediana {current.median_days:g} días · {current.pass_rate:.1f}% · "
                 f"{sum(allocations.values())} unidades · {item.lab.origin}"
             )
     selected = tuple(item for item in ranked if allocations.get(item.lab.key, 0))

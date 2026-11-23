@@ -2,7 +2,8 @@
 
 Pantalla aislada `/prop_experiment.html`. Su objetivo no es maximizar retorno
 ni crear un portafolio UBS: busca una composición cuya simulación histórica
-apruebe una evaluación prop con sus límites de pérdida y objetivo.
+resuelva y apruebe el mayor número de evaluaciones consecutivas en el período,
+con el menor tiempo de aprobación posible y respetando sus reglas y bankroll.
 
 ## Pool y brokers
 
@@ -113,14 +114,17 @@ número de estrategias, concentración o drawdown cerrado.
 El bankroll es **mensual**, no un saldo único para todo el histórico. La propia
 búsqueda usa `simulate_monthly_campaign`: el coste editable se descuenta del
 mes de inicio, nunca se reutiliza un día entre intentos y el presupuesto se
-repone al cambiar de mes. Esa misma campaña, sin una segunda interpretación,
-alimenta el calendario y el resumen mensual.
+repone al cambiar de mes. Sólo hay una prueba activa: tras resolverla, la
+siguiente empieza en el próximo día histórico disponible si su mes conserva
+bankroll. Esa misma campaña alimenta el calendario y el resumen mensual.
 
 La campaña llama al motor independiente `the5ers_hyper_growth_engine`. Una
 pausa diaria del 3% termina el día pero no falla la cuenta; sólo el stop-out
-estático del 6% cuenta como fallo. Tras pass o stop-out el siguiente intento
-empieza en el día posterior, y el final del histórico queda «en curso», no
-fallado.
+estático del 6% cuenta como fallo. Cada celda del calendario representa la
+prueba que está activa ese día; el final del histórico queda «en curso», no
+fallado. La búsqueda ordena primero por número total de pruebas pasadas, luego
+por menor mediana de días para aprobar y después por tasa de aprobación: una
+cartera lenta con 100% no vence a otra que pasa más pruebas en el mismo tramo.
 Para la cuenta de 5.000 el valor inicial del campo es 52 €. La primera versión
 usó por error 260 €; al cargar esos ajustes concretos se migran a 52 €, pero
 cualquier otro coste introducido expresamente por el usuario se conserva.

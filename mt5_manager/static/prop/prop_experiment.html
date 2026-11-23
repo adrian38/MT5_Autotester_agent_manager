@@ -33,7 +33,7 @@
         <label>Coste por prueba (€)<input id="evaluation_fee_eur" type="number" min="0.01" step="0.01"></label>
         <label>Apalancamiento por familia<input id="account_leverage" type="text" readonly></label>
       </div>
-      <p class="history-note"><strong>Fase 1:</strong> construye el Portafolio Prop con estrategias y lotes usando 01-01-2025 → 30-06-2026.</p>
+      <p class="history-note"><strong>Fase 1:</strong> construye el Portafolio Prop con estrategias y lotes usando 01-01-2025 → 30-06-2026. Optimiza pruebas consecutivas pasadas y, a igualdad de aprobaciones, el menor tiempo para aprobar.</p>
       <div id="profile-detail" class="profile-detail"></div>
       <div class="funnel-grid">
         <section>
@@ -67,7 +67,7 @@
     <section class="panel phase-panel">
       <div class="section-title"><div><p class="eyebrow">FLUJO DEL PORTAFOLIO PROP</p><h2>Tres fases independientes</h2></div><label class="auto-next"><input id="auto_continue" type="checkbox"> Seguir automáticamente a la fase siguiente</label></div>
       <div class="phase-grid">
-        <article data-phase-card="1"><span class="phase-number">1</span><div><h3>Construir Portafolio Prop</h3><p>Selecciona la composición y calcula el lote de cada estrategia con el tramo 2025 → junio de 2026.</p><small id="phase-one-state">Pendiente</small></div><button id="run">Ejecutar fase 1</button></article>
+        <article data-phase-card="1"><span class="phase-number">1</span><div><h3>Construir Portafolio Prop</h3><p>Selecciona composición y lotes para pasar el mayor número de pruebas consecutivas en el menor tiempo.</p><small id="phase-one-state">Pendiente</small></div><button id="run">Ejecutar fase 1</button></article>
         <article data-phase-card="2"><span class="phase-number">2</span><div><h3>OHLC frente a Every Tick</h3><p>Repite cada estrategia del Portafolio Prop del 20-11-2025 al 20-11-2026 y permite excluir y recomponer.</p><small id="phase-two-state">Pendiente</small></div><button id="run-phase-two" disabled>Ejecutar fase 2</button></article>
         <article data-phase-card="3"><span class="phase-number">3</span><div><h3>Validación final 2020–2024</h3><p>Congela estrategias y lotes y recorre el histórico anterior sin volver a optimizar.</p><small id="phase-three-state">Pendiente</small></div><button id="run-phase-three" disabled>Ejecutar fase 3</button></article>
       </div>

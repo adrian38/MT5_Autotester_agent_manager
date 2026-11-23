@@ -176,6 +176,16 @@ class PropExperimentEngineTests(unittest.TestCase):
              "passed", "no_budget", "no_budget", "no_budget"],
         )
 
+    def test_search_prefers_more_sequential_passes_over_a_slower_perfect_rate(self) -> None:
+        slow = Evaluation(7, 7, 100.0, 34.0, 100.0, {})
+        fast = Evaluation(30, 12, 40.0, 4.0, 100.0, {"stop_out": 18})
+        self.assertGreater(fast.score, slow.score)
+
+    def test_score_breaks_equal_pass_counts_with_shorter_time_to_pass(self) -> None:
+        slow = Evaluation(20, 10, 50.0, 8.0, 100.0, {"stop_out": 10})
+        fast = Evaluation(20, 10, 50.0, 3.0, 100.0, {"stop_out": 10})
+        self.assertGreater(fast.score, slow.score)
+
     def test_mt5_validation_preserves_each_selected_lot(self) -> None:
         groups = _validation_groups({"allocations": [
             {"origin_node": "ic", "lot": 0.03, "key": "a", "set_path": "a.set"},
