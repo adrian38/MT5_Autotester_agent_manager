@@ -11,6 +11,8 @@ from portfolio_manager.grid_set import set_file_has_enabled_grid
 
 from ..experiment.experiment_lab import LabAxis, LabStrategy
 from .prop_profiles import PropPhase, PropProfile
+from .the5ers_hyper_growth_budget import simulate_monthly_campaign
+from .the5ers_hyper_growth_rules import rules_for_capital
 
 
 @dataclass(frozen=True)
@@ -51,10 +53,6 @@ class SearchResult:
     strategies: tuple[PropStrategy, ...]
 
 
-MIN_PORTFOLIO_STRATEGIES = 3
-MAX_UNIT_CONCENTRATION = 0.5
-
-
 def _is_grid_strategy(item: PropStrategy) -> bool:
     path = Path(item.lab.set_path)
     name_marks_grid = "grid" in path.stem.lower().replace("-", "_").split("_")
@@ -82,14 +80,12 @@ def executable_pool(
 def credible_pool(
     strategies: Sequence[PropStrategy], include_grids: bool = False,
 ) -> tuple[list[PropStrategy], list[str]]:
-    """Retira curvas que el modelo de PnL cerrado no puede dimensionar con seguridad."""
+    """Aplica únicamente la decisión explícita del checkbox Grid."""
     accepted: list[PropStrategy] = []
-    zero_risk = grid = 0
+    grid = 0
     for item in strategies:
         if not include_grids and _is_grid_strategy(item):
             grid += 1
-        elif item.lab.valley_dd <= 0:
-            zero_risk += 1
         else:
             accepted.append(item)
     warnings = []
@@ -98,10 +94,6 @@ def credible_pool(
     if include_grids:
         warnings.append(
             "Prop: Grid habilitado manualmente; el filtro de drawdown cero sigue activo."
-        )
-    if zero_risk:
-        warnings.append(
-            f"Prop: {zero_risk} estrategia(s) con drawdown cerrado cero excluidas."
         )
     return accepted, warnings
 
@@ -190,8 +182,24 @@ def simulate_trial(
 def evaluate(
     strategies: Sequence[PropStrategy], allocations: dict[str, int], axis: LabAxis,
     profile: PropProfile, capital: float, max_days: int,
+    bankroll_eur: float | None = None, evaluation_fee_eur: float | None = None,
 ) -> Evaluation:
     series = combined_series(strategies, allocations)
+    if profile.profile_id == "the5ers-growth":
+        campaign = simulate_monthly_campaign(
+            series, axis.days, rules_for_capital(capital),
+            float(1000.0 if bankroll_eur is None else bankroll_eur),
+            float(52.0 if evaluation_fee_eur is None else evaluation_fee_eur),
+        )
+        passed_days = [attempt.days for attempt in campaign.attempts if attempt.passed]
+        completed = campaign.completed
+        return Evaluation(
+            trials=completed, passed=campaign.passed,
+            pass_rate=(campaign.passed / completed * 100.0 if completed else 0.0),
+            median_days=(statistics.median(passed_days) if passed_days else 0.0),
+            mean_peak_progress_pct=campaign.mean_peak_progress_pct,
+            failures={"stop_out": campaign.stop_outs} if campaign.stop_outs else {},
+        )
     complete_window = max_days * len(profile.phases)
     last_start = max(len(series) - complete_window + 1, 1)
     starts = list(range(last_start))
@@ -224,37 +232,6 @@ def _eligible_additions(
     ]
 
 
-def _drawdown(values: Sequence[float]) -> float:
-    balance = peak = worst = 0.0
-    for value in values:
-        balance += value
-        peak = max(peak, balance)
-        worst = max(worst, peak - balance)
-    return worst
-
-
-def _proposal_is_safe(
-    strategies: Sequence[PropStrategy], allocations: dict[str, int],
-    profile: PropProfile, capital: float,
-) -> bool:
-    total = sum(allocations.values())
-    if total >= MIN_PORTFOLIO_STRATEGIES:
-        if max(allocations.values(), default=0) / total > MAX_UNIT_CONCENTRATION:
-            return False
-    loss_budget = capital * min(phase.max_loss_pct for phase in profile.phases) / 100.0
-    return _drawdown(combined_series(strategies, allocations)) <= loss_budget + 1e-9
-
-
-def _selected_strategies(
-    ranked: Sequence[PropStrategy], allocations: dict[str, int],
-) -> tuple[PropStrategy, ...]:
-    if len(allocations) < MIN_PORTFOLIO_STRATEGIES:
-        raise ValueError(
-            f"No se pudo formar un Portafolio Prop con {MIN_PORTFOLIO_STRATEGIES} estrategias y riesgo válido"
-        )
-    return tuple(item for item in ranked if allocations.get(item.lab.key, 0))
-
-
 def search(
     strategies: Sequence[PropStrategy], axis: LabAxis, profile: PropProfile,
     settings: dict[str, float | int], progress: Callable[[str], None] | None = None,
@@ -263,7 +240,8 @@ def search(
     capital = float(settings["capital"])
     kwargs = dict(
         axis=axis, profile=profile, capital=capital,
-        max_days=120,
+        max_days=120, bankroll_eur=float(settings.get("bankroll_eur", 1000.0)),
+        evaluation_fee_eur=float(settings.get("evaluation_fee_eur", 52.0)),
     )
     singles = []
     for index, item in enumerate(strategies, 1):
@@ -288,20 +266,15 @@ def search(
     step = 0
     while True:
         choices = _eligible_additions(ranked, allocations, capital)
-        if len(allocations) < MIN_PORTFOLIO_STRATEGIES:
-            choices = [item for item in choices if item.lab.key not in allocations]
         if not choices:
             break
         evaluated = []
         for item in choices:
             proposal = dict(allocations)
             proposal[item.lab.key] = proposal.get(item.lab.key, 0) + 1
-            if _proposal_is_safe(ranked, proposal, profile, capital):
-                evaluated.append((evaluate(ranked, proposal, **kwargs), item, proposal))
-        if not evaluated:
-            break
+            evaluated.append((evaluate(ranked, proposal, **kwargs), item, proposal))
         best, item, proposal = max(evaluated, key=lambda row: row[0].score)
-        if len(allocations) >= MIN_PORTFOLIO_STRATEGIES and best.score <= current.score:
+        if allocations and best.score <= current.score:
             break
         allocations, current = proposal, best
         step += 1
@@ -310,7 +283,7 @@ def search(
                 f"Búsqueda {step}: {current.pass_rate:.1f}% · "
                 f"{sum(allocations.values())} unidades · {item.lab.origin}"
             )
-    selected = _selected_strategies(ranked, allocations)
+    selected = tuple(item for item in ranked if allocations.get(item.lab.key, 0))
     return SearchResult(allocations, current, selected)
 
 

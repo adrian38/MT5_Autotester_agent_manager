@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from dataclasses import replace
 from typing import Any
 
 
@@ -44,3 +45,8 @@ class HyperGrowthRules:
 
 
 HYPER_GROWTH_5K = HyperGrowthRules()
+
+
+def rules_for_capital(capital: float) -> HyperGrowthRules:
+    """Conserva las reglas porcentuales verificadas y cambia sólo el tamaño ofrecido."""
+    return replace(HYPER_GROWTH_5K, initial_balance=float(capital))

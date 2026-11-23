@@ -339,9 +339,10 @@ function renderAttemptAnalysis(result) {
     metric("Bankroll que se reinicia cada mes", `€${number(bankroll.monthly_eur)}`)
     + metric("Máximo de pruebas por mes", bankroll.max_attempts_per_month || 0)
     + metric("Pruebas pasadas", totals.passed || 0)
-    + metric("Pruebas falladas", totals.failed || 0);
+    + metric("Pruebas falladas", totals.failed || 0)
+    + metric("Pausas diarias · no son fallo", totals.daily_pauses || 0);
   document.querySelector("#attempt-monthly").innerHTML = (analysis.monthly || []).map(row =>
-    `<tr><td><strong>${esc(row.month)}</strong></td><td>€${number(row.bankroll_eur)}</td><td>€${number(row.spent_eur)}</td><td>${row.started}</td><td class="attempt-passed">${row.passed}</td><td class="attempt-failed">${row.failed}</td><td>${row.in_progress}</td></tr>`
+    `<tr><td><strong>${esc(row.month)}</strong></td><td>€${number(row.bankroll_eur)}</td><td>€${number(row.spent_eur)}</td><td>${row.started}</td><td class="attempt-passed">${row.passed}</td><td class="attempt-failed">${row.failed}</td><td>${row.in_progress}</td><td>${row.daily_pauses || 0}</td></tr>`
   ).join("");
   const months = [...new Set(attemptCalendar.map(item => item.date.slice(0, 7)))];
   const selector = document.querySelector("#attempt-month");

@@ -1,97 +1,91 @@
-"""Calendario de intentos financiados con un bankroll que se renueva cada mes."""
+"""Presentación del calendario producido por la campaña Hyper Growth real."""
 
 from __future__ import annotations
 
 from collections import defaultdict
 from typing import Any
 
-from .prop_experiment_engine import SearchResult, combined_series, simulate_trial
+from .prop_experiment_engine import SearchResult, combined_series
 from .prop_profiles import PropProfile
+from .the5ers_hyper_growth_budget import BudgetAttempt, simulate_monthly_campaign
+from .the5ers_hyper_growth_rules import rules_for_capital
 
 
 def _empty_month(bankroll: float) -> dict[str, Any]:
     return {
         "bankroll_eur": bankroll, "spent_eur": 0.0, "remaining_eur": bankroll,
         "started": 0, "passed": 0, "failed": 0, "in_progress": 0,
-        "failures": {},
+        "daily_pauses": 0, "failures": {},
     }
 
 
-def _mark_outcome(month: dict[str, Any], status: str, reason: str) -> None:
-    month[status] += 1
-    if status == "failed":
-        failures = month["failures"]
-        failures[reason] = failures.get(reason, 0) + 1
+def _calendar_rows(days: tuple[str, ...], attempts: tuple[BudgetAttempt, ...]) -> list[dict[str, Any]]:
+    rows = [{"date": day, "status": "no_budget"} for day in days]
+    for number, funded in enumerate(attempts, 1):
+        attempt = funded.result
+        for index in range(attempt.start_index, attempt.end_index):
+            rows[index] = {
+                "date": days[index], "status": "in_progress",
+                "attempt": number, "started": days[attempt.start_index],
+            }
+        if attempt.completed:
+            finish = attempt.end_index - 1
+            rows[finish].update({
+                "status": "passed" if attempt.passed else "failed",
+                "days": attempt.days, "reason": attempt.reason,
+                "peak_progress_pct": attempt.peak_progress_pct,
+            })
+    return rows
 
 
-def _next_month_index(days: tuple[str, ...], cursor: int) -> int:
-    month = days[cursor][:7]
-    while cursor < len(days) and days[cursor][:7] == month:
-        cursor += 1
-    return cursor
+def _outcome_month(days: tuple[str, ...], attempt: BudgetAttempt) -> str:
+    index = max(attempt.result.end_index - 1, attempt.result.start_index)
+    return days[index][:7]
 
 
-def _attempt_calendar(
-    series: list[float], days: tuple[str, ...], profile: PropProfile,
-    capital: float, bankroll: float, fee: float,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _monthly_rows(
+    days: tuple[str, ...], attempts: tuple[BudgetAttempt, ...],
+    spent: dict[str, float], bankroll: float,
+) -> list[dict[str, Any]]:
     months: dict[str, dict[str, Any]] = defaultdict(lambda: _empty_month(bankroll))
-    calendar: list[dict[str, Any]] = []
-    cursor = attempt = 0
-    required_days = 120 * len(profile.phases)
-    while cursor < len(days):
-        start_month = days[cursor][:7]
-        budget = months[start_month]
-        if budget["remaining_eur"] + 1e-9 < fee:
-            end = _next_month_index(days, cursor)
-            calendar.extend(
-                {"date": days[index], "status": "no_budget"}
-                for index in range(cursor, end)
-            )
-            cursor = end
-            continue
-        attempt += 1
-        budget["started"] += 1
-        budget["spent_eur"] += fee
-        budget["remaining_eur"] -= fee
-        result = simulate_trial(series, cursor, profile, capital, 120)
-        available = len(days) - cursor
-        complete = result.passed or result.reason != "timeout" or available >= required_days
-        status = "passed" if result.passed else "failed" if complete else "in_progress"
-        finish = min(cursor + max(result.days, 1) - 1, len(days) - 1)
-        calendar.extend({
-            "date": days[index], "status": "in_progress", "attempt": attempt,
-            "started": days[cursor],
-        } for index in range(cursor, finish))
-        calendar.append({
-            "date": days[finish], "status": status, "attempt": attempt,
-            "started": days[cursor], "days": result.days, "reason": result.reason,
-            "peak_progress_pct": result.peak_progress_pct,
-        })
-        _mark_outcome(months[days[finish][:7]], status, result.reason)
-        cursor = finish + 1
-        if status == "in_progress":
-            break
-    rows = [{"month": month, **values} for month, values in sorted(months.items())]
-    return calendar, rows
+    for day in days:
+        months[day[:7]]
+    for month, value in spent.items():
+        months[month]["spent_eur"] = value
+        months[month]["remaining_eur"] = bankroll - value
+    for funded in attempts:
+        months[funded.charged_month]["started"] += 1
+        outcome = months[_outcome_month(days, funded)]
+        outcome["daily_pauses"] += funded.result.daily_pauses
+        if funded.result.passed:
+            outcome["passed"] += 1
+        elif funded.result.completed:
+            outcome["failed"] += 1
+            outcome["failures"]["stop_out"] = outcome["failures"].get("stop_out", 0) + 1
+        else:
+            outcome["in_progress"] += 1
+    return [{"month": month, **values} for month, values in sorted(months.items())]
 
 
 def attempt_analysis(
     result: SearchResult, axis: Any, profile: PropProfile, settings: dict[str, Any],
 ) -> dict[str, Any]:
-    """Ejecuta intentos consecutivos sin gastar más del bankroll de cada mes."""
+    """Usa exactamente la misma campaña financiada con la que se puntuó la cartera."""
     bankroll = float(settings["bankroll_eur"])
     fee = float(settings["evaluation_fee_eur"])
-    calendar, monthly = _attempt_calendar(
-        combined_series(result.strategies, result.allocations), axis.days, profile,
-        float(settings["capital"]), bankroll, fee,
+    campaign = simulate_monthly_campaign(
+        combined_series(result.strategies, result.allocations), axis.days,
+        rules_for_capital(float(settings["capital"])), bankroll, fee,
     )
-    totals = {
-        key: sum(int(row[key]) for row in monthly)
-        for key in ("started", "passed", "failed", "in_progress")
-    }
+    monthly = _monthly_rows(axis.days, campaign.attempts, campaign.spent_by_month, bankroll)
     return {
-        "calendar": calendar, "monthly": monthly, "totals": totals,
+        "calendar": _calendar_rows(axis.days, campaign.attempts),
+        "monthly": monthly,
+        "totals": {
+            "started": len(campaign.attempts), "passed": campaign.passed,
+            "failed": campaign.stop_outs, "in_progress": campaign.unresolved,
+            "daily_pauses": sum(item.result.daily_pauses for item in campaign.attempts),
+        },
         "bankroll": {
             "monthly_eur": bankroll, "fee_per_attempt_eur": fee,
             "max_attempts_per_month": int(bankroll // fee) if fee > 0 else 0,

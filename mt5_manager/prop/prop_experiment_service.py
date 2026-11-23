@@ -30,7 +30,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "include_manual_portfolios": True, "active_portfolios_only": False,
     "include_grids": False, "auto_continue": False,
 }
-RESULT_SCHEMA_VERSION = 3
+RESULT_SCHEMA_VERSION = 4
 
 
 class PropExperimentCancelled(RuntimeError):
@@ -397,6 +397,7 @@ class PropExperimentCoordinator:
         measured = evaluate(
             selected, units, axis, profile(settings["profile_id"]),
             float(settings["capital"]), 120,
+            float(settings["bankroll_eur"]), float(settings["evaluation_fee_eur"]),
         )
         frozen = SearchResult(units, measured, selected)
         validation = result_payload(frozen, axis, float(settings["capital"]))

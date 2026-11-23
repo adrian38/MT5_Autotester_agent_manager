@@ -107,19 +107,20 @@ alguna comprobación MT5 acabó fallida.
 
 El Portafolio Prop no admite por defecto estrategias Grid: el checkbox
 `include_grids` empieza desmarcado y cruza tanto `EnableGrid=true` como el
-nombre del set. Activarlo no rehabilita curvas con drawdown cerrado cero. Éstas
-se descartan siempre porque el motor diario no tiene una medida con la que
-dimensionar su riesgo. La composición exige al menos tres estrategias, limita
-cualquier estrategia al 50% de las unidades y no acepta propuestas cuyo
-drawdown cerrado combinado supere la pérdida máxima del perfil.
+nombre del set. Activarlo sólo cambia ese filtro; no añade límites inventados de
+número de estrategias, concentración o drawdown cerrado.
 
-El bankroll es **mensual**, no un saldo único para todo el histórico. El coste
-editable de cada prueba se descuenta del mes en que empieza; al cambiar de mes
-se repone el bankroll completo. Los intentos son consecutivos: mientras uno está
-activo el calendario marca «Portafolio en curso», el día de resolución marca
-«Pasada» o «Fallada» y, cuando el dinero del mes no alcanza para otra compra,
-los días restantes indican «Bankroll agotado». El resultado conserva el
-calendario, los totales y una fila por mes con compras, gasto, saldo y resultados.
+El bankroll es **mensual**, no un saldo único para todo el histórico. La propia
+búsqueda usa `simulate_monthly_campaign`: el coste editable se descuenta del
+mes de inicio, nunca se reutiliza un día entre intentos y el presupuesto se
+repone al cambiar de mes. Esa misma campaña, sin una segunda interpretación,
+alimenta el calendario y el resumen mensual.
+
+La campaña llama al motor independiente `the5ers_hyper_growth_engine`. Una
+pausa diaria del 3% termina el día pero no falla la cuenta; sólo el stop-out
+estático del 6% cuenta como fallo. Tras pass o stop-out el siguiente intento
+empieza en el día posterior, y el final del histórico queda «en curso», no
+fallado.
 Para la cuenta de 5.000 el valor inicial del campo es 52 €. La primera versión
 usó por error 260 €; al cargar esos ajustes concretos se migran a 52 €, pero
 cualquier otro coste introducido expresamente por el usuario se conserva.

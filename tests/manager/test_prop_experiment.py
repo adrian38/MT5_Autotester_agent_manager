@@ -111,7 +111,6 @@ class PropExperimentEngineTests(unittest.TestCase):
         normalized = executable_pool([
             _strategy("survivor", 10.0, (200.0,) * 130),
             _strategy("addition", 10.0, (100.0,) * 130),
-            _strategy("third", 10.0, (50.0,) * 130),
         ], set(), set())
         axis = LabAxis(tuple(f"2025-01-{(index % 28) + 1:02d}" for index in range(130)), (0,) * 130, 1)
         found = search(
@@ -120,24 +119,41 @@ class PropExperimentEngineTests(unittest.TestCase):
             {"capital": 5000.0}, required_keys={"survivor"},
         )
         self.assertIn("survivor", found.allocations)
-        self.assertGreaterEqual(len(found.allocations), 3)
 
-    def test_prop_rejects_grid_and_zero_drawdown_by_default(self) -> None:
+    def test_prop_grid_checkbox_does_not_invent_another_risk_filter(self) -> None:
         items = executable_pool([
             _strategy("Grid_bad", 20.0, (10.0, -1.0)),
             _strategy("zero", 0.0, (10.0, 1.0)),
             _strategy("valid", 10.0, (10.0, -1.0)),
         ], set(), set())
         accepted, warnings = credible_pool(items)
-        self.assertEqual([item.lab.key for item in accepted], ["valid"])
+        self.assertEqual([item.lab.key for item in accepted], ["zero", "valid"])
         self.assertTrue(any("Grid" in warning for warning in warnings))
-        self.assertTrue(any("drawdown cerrado cero" in warning for warning in warnings))
         accepted_grid, _warnings = credible_pool(items, include_grids=True)
-        self.assertEqual([item.lab.key for item in accepted_grid], ["Grid_bad", "valid"])
+        self.assertEqual(
+            [item.lab.key for item in accepted_grid], ["Grid_bad", "zero", "valid"],
+        )
+
+    def test_growth_evaluation_uses_daily_pause_and_non_overlapping_attempts(self) -> None:
+        normalized = executable_pool([
+            _strategy("candidate", 10.0, (-200.0, -200.0, -200.0, 500.0)),
+        ], set(), set())
+        axis = LabAxis((
+            "2025-01-02", "2025-01-03", "2025-01-06", "2025-01-07",
+        ), (0,) * 4, 1)
+        measured = search(
+            normalized, axis, profile("the5ers-growth"), {
+                "capital": 5000.0, "bankroll_eur": 1000.0,
+                "evaluation_fee_eur": 52.0,
+            },
+        ).evaluation
+        self.assertEqual(measured.trials, 2)
+        self.assertEqual(measured.passed, 1)
+        self.assertEqual(measured.failures, {"stop_out": 1})
 
     def test_monthly_bankroll_limits_attempts_and_resets(self) -> None:
         strategy = executable_pool([
-            _strategy("valid", 10.0, (2.0,) * 8),
+            _strategy("valid", 10.0, (500.0,) * 8),
         ], set(), set())[0]
         result = SearchResult(
             {"valid": 1}, Evaluation(8, 8, 100.0, 1.0, 100.0, {}),
@@ -148,8 +164,8 @@ class PropExperimentEngineTests(unittest.TestCase):
             "2025-02-03", "2025-02-04", "2025-02-05", "2025-02-06",
         ), (0,) * 8, 2)
         analysis = attempt_analysis(
-            result, axis, _profile(PropPhase("Evaluation", 1.0, 50.0, 50.0)),
-            {"capital": 100.0, "bankroll_eur": 100.0, "evaluation_fee_eur": 60.0},
+            result, axis, profile("the5ers-growth"),
+            {"capital": 5000.0, "bankroll_eur": 100.0, "evaluation_fee_eur": 60.0},
         )
         self.assertEqual(analysis["bankroll"]["max_attempts_per_month"], 1)
         self.assertEqual(analysis["totals"]["passed"], 2)
