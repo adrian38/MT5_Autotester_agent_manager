@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import statistics
+from pathlib import Path
 from dataclasses import asdict, dataclass
 from typing import Callable, Sequence
+
+from portfolio_manager.grid_set import set_file_has_enabled_grid
 
 from ..experiment.experiment_lab import LabAxis, LabStrategy
 from .prop_profiles import PropPhase, PropProfile
@@ -48,6 +51,16 @@ class SearchResult:
     strategies: tuple[PropStrategy, ...]
 
 
+MIN_PORTFOLIO_STRATEGIES = 3
+MAX_UNIT_CONCENTRATION = 0.5
+
+
+def _is_grid_strategy(item: PropStrategy) -> bool:
+    path = Path(item.lab.set_path)
+    name_marks_grid = "grid" in path.stem.lower().replace("-", "_").split("_")
+    return name_marks_grid or set_file_has_enabled_grid(path)
+
+
 def executable_pool(
     pool: Sequence[LabStrategy], seed_keys: set[str], manual_keys: set[str],
 ) -> list[PropStrategy]:
@@ -64,6 +77,33 @@ def executable_pool(
             series=tuple(item.series),
         ))
     return executable
+
+
+def credible_pool(
+    strategies: Sequence[PropStrategy], include_grids: bool = False,
+) -> tuple[list[PropStrategy], list[str]]:
+    """Retira curvas que el modelo de PnL cerrado no puede dimensionar con seguridad."""
+    accepted: list[PropStrategy] = []
+    zero_risk = grid = 0
+    for item in strategies:
+        if not include_grids and _is_grid_strategy(item):
+            grid += 1
+        elif item.lab.valley_dd <= 0:
+            zero_risk += 1
+        else:
+            accepted.append(item)
+    warnings = []
+    if grid:
+        warnings.append(f"Prop: {grid} estrategia(s) Grid excluidas; requieren riesgo flotante.")
+    if include_grids:
+        warnings.append(
+            "Prop: Grid habilitado manualmente; el filtro de drawdown cero sigue activo."
+        )
+    if zero_risk:
+        warnings.append(
+            f"Prop: {zero_risk} estrategia(s) con drawdown cerrado cero excluidas."
+        )
+    return accepted, warnings
 
 
 def combined_series(strategies: Sequence[PropStrategy], allocations: dict[str, int]) -> list[float]:
@@ -184,6 +224,37 @@ def _eligible_additions(
     ]
 
 
+def _drawdown(values: Sequence[float]) -> float:
+    balance = peak = worst = 0.0
+    for value in values:
+        balance += value
+        peak = max(peak, balance)
+        worst = max(worst, peak - balance)
+    return worst
+
+
+def _proposal_is_safe(
+    strategies: Sequence[PropStrategy], allocations: dict[str, int],
+    profile: PropProfile, capital: float,
+) -> bool:
+    total = sum(allocations.values())
+    if total >= MIN_PORTFOLIO_STRATEGIES:
+        if max(allocations.values(), default=0) / total > MAX_UNIT_CONCENTRATION:
+            return False
+    loss_budget = capital * min(phase.max_loss_pct for phase in profile.phases) / 100.0
+    return _drawdown(combined_series(strategies, allocations)) <= loss_budget + 1e-9
+
+
+def _selected_strategies(
+    ranked: Sequence[PropStrategy], allocations: dict[str, int],
+) -> tuple[PropStrategy, ...]:
+    if len(allocations) < MIN_PORTFOLIO_STRATEGIES:
+        raise ValueError(
+            f"No se pudo formar un Portafolio Prop con {MIN_PORTFOLIO_STRATEGIES} estrategias y riesgo válido"
+        )
+    return tuple(item for item in ranked if allocations.get(item.lab.key, 0))
+
+
 def search(
     strategies: Sequence[PropStrategy], axis: LabAxis, profile: PropProfile,
     settings: dict[str, float | int], progress: Callable[[str], None] | None = None,
@@ -217,15 +288,20 @@ def search(
     step = 0
     while True:
         choices = _eligible_additions(ranked, allocations, capital)
+        if len(allocations) < MIN_PORTFOLIO_STRATEGIES:
+            choices = [item for item in choices if item.lab.key not in allocations]
         if not choices:
             break
         evaluated = []
         for item in choices:
             proposal = dict(allocations)
             proposal[item.lab.key] = proposal.get(item.lab.key, 0) + 1
-            evaluated.append((evaluate(ranked, proposal, **kwargs), item, proposal))
+            if _proposal_is_safe(ranked, proposal, profile, capital):
+                evaluated.append((evaluate(ranked, proposal, **kwargs), item, proposal))
+        if not evaluated:
+            break
         best, item, proposal = max(evaluated, key=lambda row: row[0].score)
-        if allocations and best.score <= current.score:
+        if len(allocations) >= MIN_PORTFOLIO_STRATEGIES and best.score <= current.score:
             break
         allocations, current = proposal, best
         step += 1
@@ -234,7 +310,7 @@ def search(
                 f"Búsqueda {step}: {current.pass_rate:.1f}% · "
                 f"{sum(allocations.values())} unidades · {item.lab.origin}"
             )
-    selected = tuple(item for item in ranked if allocations.get(item.lab.key, 0))
+    selected = _selected_strategies(ranked, allocations)
     return SearchResult(allocations, current, selected)
 
 

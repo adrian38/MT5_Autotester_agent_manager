@@ -10,24 +10,27 @@ from typing import Any, Callable
 
 from ..common import load_json, safe_float, save_json, utc_now
 from .prop_experiment_engine import (
-    SearchResult, evaluate, executable_pool, result_payload, search,
+    SearchResult, credible_pool, evaluate, executable_pool, result_payload, search,
 )
 from .prop_experiment_periods import (
     PHASE_ONE_FROM, PHASE_ONE_TO, PHASE_THREE_FROM, PHASE_THREE_TO,
     PHASE_TWO_FROM, PHASE_TWO_TO, windowed_pool,
 )
 from .prop_experiment_pool import load_pool
+from .prop_experiment_reporting import attempt_analysis
 from .prop_profiles import EXPERIMENT_PROFILE_IDS, profile, profiles_payload
 from .prop_experiment_validation import NodeRequest, validate_portfolio
 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "profile_id": "the5ers-growth", "capital": 5000.0, "bankroll_eur": 1000.0,
+    "evaluation_fee_eur": 260.0,
     "symbol_families": ["Forex", "Metals", "Indices"],
     "source_nodes": [], "include_candidates": True, "include_seeds": True,
     "include_manual_portfolios": True, "active_portfolios_only": False,
-    "auto_continue": False,
+    "include_grids": False, "auto_continue": False,
 }
+RESULT_SCHEMA_VERSION = 2
 
 
 class PropExperimentCancelled(RuntimeError):
@@ -73,12 +76,14 @@ def normalize_settings(raw: dict[str, Any], *, migrate: bool = False) -> dict[st
         "profile_id": profile_id,
         "capital": capital,
         "bankroll_eur": max(safe_float(value["bankroll_eur"], 1000.0), 0.0),
+        "evaluation_fee_eur": max(safe_float(value["evaluation_fee_eur"], 260.0), 0.01),
         "symbol_families": families,
         "source_nodes": [str(item) for item in value["source_nodes"] if str(item)],
         "include_candidates": bool(value["include_candidates"]),
         "include_seeds": bool(value["include_seeds"]),
         "include_manual_portfolios": bool(value["include_manual_portfolios"]),
         "active_portfolios_only": bool(value["active_portfolios_only"]),
+        "include_grids": bool(value["include_grids"]),
         "auto_continue": bool(value["auto_continue"]),
     }
 
@@ -104,7 +109,12 @@ class PropExperimentCoordinator:
         self.log_lines: deque[str] = deque(maxlen=4000)
         self.cancel = threading.Event()
         self.job: dict[str, Any] = {"status": "idle", "progress": "", "error": None}
-        self.result = self._load_optional(self.result_path)
+        loaded_result = self._load_optional(self.result_path)
+        self.result = (
+            loaded_result
+            if (loaded_result or {}).get("result_schema_version") == RESULT_SCHEMA_VERSION
+            else None
+        )
         self.stored = self._load_optional(self.settings_path) or {}
 
     @staticmethod
@@ -257,7 +267,13 @@ class PropExperimentCoordinator:
         )
         if not pool or not axis.size:
             raise ValueError("El pool no tiene días operables en la ventana elegida")
-        return executable_pool(pool, seed_keys, manual_keys), axis, warnings, origins, (
+        executable = executable_pool(pool, seed_keys, manual_keys)
+        executable, credibility_warnings = credible_pool(
+            executable, bool(settings["include_grids"]),
+        )
+        if not executable:
+            raise ValueError("El pool no contiene estrategias con riesgo cerrado medible")
+        return executable, axis, warnings + credibility_warnings, origins, (
             len(pool), len(seed_keys), len(manual_keys)
         )
 
@@ -273,8 +289,12 @@ class PropExperimentCoordinator:
         )
         found = search(executable, axis, profile(settings["profile_id"]), settings, self._checkpoint)
         payload = result_payload(found, axis, float(settings["capital"]))
+        payload["attempt_analysis"] = attempt_analysis(
+            found, axis, profile(settings["profile_id"]), settings,
+        )
         payload.update({
             "kind": "prop_portfolio", "name": "Portafolio Prop", "revision": 1,
+            "result_schema_version": RESULT_SCHEMA_VERSION,
             "profile": profile(settings["profile_id"]).payload(), "settings": settings,
             "pool": {
                 "strategies": pool_count, "seeds": seed_count,
@@ -317,6 +337,9 @@ class PropExperimentCoordinator:
             self._checkpoint, required_keys=required,
         )
         updated = result_payload(found, axis, float(settings["capital"]))
+        updated["attempt_analysis"] = attempt_analysis(
+            found, axis, profile(settings["profile_id"]), settings,
+        )
         previous = dict(self.result or {})
         previous.pop("previous_revision", None)
         updated.update({
@@ -374,6 +397,9 @@ class PropExperimentCoordinator:
         )
         frozen = SearchResult(units, measured, selected)
         validation = result_payload(frozen, axis, float(settings["capital"]))
+        validation["attempt_analysis"] = attempt_analysis(
+            frozen, axis, profile(settings["profile_id"]), settings,
+        )
         updated = dict(self.result or {})
         updated["phase_three"] = {
             "status": "completed", "from": PHASE_THREE_FROM, "to": PHASE_THREE_TO,

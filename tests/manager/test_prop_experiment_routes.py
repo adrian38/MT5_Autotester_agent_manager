@@ -55,7 +55,10 @@ class PropExperimentRouteTests(unittest.TestCase):
         self.assertIn("Seeds UBS con Final Tick 6M", page)
         self.assertIn("Estrategias de portafolios manuales", page)
         self.assertIn("Solo estrategias presentes en portafolios activos", page)
-        self.assertIn("Bankroll disponible (€)", page)
+        self.assertIn("Bankroll mensual (€)", page)
+        self.assertIn("Coste por prueba (€)", page)
+        self.assertIn('id="include_grids"', page)
+        self.assertIn('id="attempt-calendar"', page)
         self.assertIn("Familias de símbolos", page)
         self.assertIn("portfolio_curve_view.js", page)
         self.assertIn("Plan de pruebas prop", page)
@@ -96,6 +99,8 @@ class PropExperimentRouteTests(unittest.TestCase):
         })
         self.assertEqual(profile["symbol_families"], ["Forex", "Metals", "Indices"])
         self.assertEqual(config["settings"]["bankroll_eur"], 1000.0)
+        self.assertEqual(config["settings"]["evaluation_fee_eur"], 260.0)
+        self.assertFalse(config["settings"]["include_grids"])
         self.assertFalse(config["settings"]["auto_continue"])
         self.assertEqual([item["id"] for item in config["phases"]], [1, 2, 3])
         self.assertNotIn("horizon_months", config["settings"])
@@ -137,6 +142,17 @@ class PropExperimentRouteTests(unittest.TestCase):
     def test_unknown_routes_still_fall_through(self) -> None:
         self.assertEqual(self.request("/api/prop-experiment/nope")[0], 404)
         self.assertEqual(self.request("/api/nodes")[0], 200)
+
+    def test_legacy_result_is_not_presented_as_a_valid_prop_portfolio(self) -> None:
+        coordinator = self.manager.prop_experiments
+        coordinator.result_path.write_text('{"kind":"prop_portfolio","revision":1}', encoding="utf-8")
+        coordinator.result = coordinator._load_optional(coordinator.result_path)
+        loaded = type(coordinator)(
+            list(coordinator.nodes.values()), coordinator.settings_path,
+            coordinator.source_factory, coordinator.active_members_factory,
+            coordinator.symbol_settings_factory, coordinator.node_request,
+        )
+        self.assertIsNone(loaded.result)
 
 
 if __name__ == "__main__":

@@ -105,6 +105,22 @@ estrategias y unidades de la revisión que terminó la fase 2. Cada fase tiene s
 botón manual. `auto_continue` encadena 1→2→3 y se detiene antes de la tercera si
 alguna comprobación MT5 acabó fallida.
 
+El Portafolio Prop no admite por defecto estrategias Grid: el checkbox
+`include_grids` empieza desmarcado y cruza tanto `EnableGrid=true` como el
+nombre del set. Activarlo no rehabilita curvas con drawdown cerrado cero. Éstas
+se descartan siempre porque el motor diario no tiene una medida con la que
+dimensionar su riesgo. La composición exige al menos tres estrategias, limita
+cualquier estrategia al 50% de las unidades y no acepta propuestas cuyo
+drawdown cerrado combinado supere la pérdida máxima del perfil.
+
+El bankroll es **mensual**, no un saldo único para todo el histórico. El coste
+editable de cada prueba se descuenta del mes en que empieza; al cambiar de mes
+se repone el bankroll completo. Los intentos son consecutivos: mientras uno está
+activo el calendario marca «Portafolio en curso», el día de resolución marca
+«Pasada» o «Fallada» y, cuando el dinero del mes no alcanza para otra compra,
+los días restantes indican «Bankroll agotado». El resultado conserva el
+calendario, los totales y una fila por mes con compras, gasto, saldo y resultados.
+
 ## Plan de validación prop v1
 
 Los dos documentos «Hello traders» aportan experiencias e hipótesis, no

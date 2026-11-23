@@ -7,6 +7,7 @@ import unittest
 from mt5_manager.experiment.experiment_lab import LabAxis, LabStrategy
 from mt5_manager.prop.prop_experiment_engine import (
     _eligible_additions,
+    credible_pool,
     Evaluation,
     SearchResult,
     result_payload,
@@ -14,6 +15,7 @@ from mt5_manager.prop.prop_experiment_engine import (
     search,
     simulate_trial,
 )
+from mt5_manager.prop.prop_experiment_reporting import attempt_analysis
 from mt5_manager.prop.prop_experiment_periods import windowed_pool
 from mt5_manager.prop.prop_experiment_validation import _validation_groups
 from mt5_manager.prop.prop_profiles import PropPhase, PropProfile, profile
@@ -109,6 +111,7 @@ class PropExperimentEngineTests(unittest.TestCase):
         normalized = executable_pool([
             _strategy("survivor", 10.0, (200.0,) * 130),
             _strategy("addition", 10.0, (100.0,) * 130),
+            _strategy("third", 10.0, (50.0,) * 130),
         ], set(), set())
         axis = LabAxis(tuple(f"2025-01-{(index % 28) + 1:02d}" for index in range(130)), (0,) * 130, 1)
         found = search(
@@ -117,6 +120,45 @@ class PropExperimentEngineTests(unittest.TestCase):
             {"capital": 5000.0}, required_keys={"survivor"},
         )
         self.assertIn("survivor", found.allocations)
+        self.assertGreaterEqual(len(found.allocations), 3)
+
+    def test_prop_rejects_grid_and_zero_drawdown_by_default(self) -> None:
+        items = executable_pool([
+            _strategy("Grid_bad", 20.0, (10.0, -1.0)),
+            _strategy("zero", 0.0, (10.0, 1.0)),
+            _strategy("valid", 10.0, (10.0, -1.0)),
+        ], set(), set())
+        accepted, warnings = credible_pool(items)
+        self.assertEqual([item.lab.key for item in accepted], ["valid"])
+        self.assertTrue(any("Grid" in warning for warning in warnings))
+        self.assertTrue(any("drawdown cerrado cero" in warning for warning in warnings))
+        accepted_grid, _warnings = credible_pool(items, include_grids=True)
+        self.assertEqual([item.lab.key for item in accepted_grid], ["Grid_bad", "valid"])
+
+    def test_monthly_bankroll_limits_attempts_and_resets(self) -> None:
+        strategy = executable_pool([
+            _strategy("valid", 10.0, (2.0,) * 8),
+        ], set(), set())[0]
+        result = SearchResult(
+            {"valid": 1}, Evaluation(8, 8, 100.0, 1.0, 100.0, {}),
+            (strategy,),
+        )
+        axis = LabAxis((
+            "2025-01-02", "2025-01-03", "2025-01-06", "2025-01-07",
+            "2025-02-03", "2025-02-04", "2025-02-05", "2025-02-06",
+        ), (0,) * 8, 2)
+        analysis = attempt_analysis(
+            result, axis, _profile(PropPhase("Evaluation", 1.0, 50.0, 50.0)),
+            {"capital": 100.0, "bankroll_eur": 100.0, "evaluation_fee_eur": 60.0},
+        )
+        self.assertEqual(analysis["bankroll"]["max_attempts_per_month"], 1)
+        self.assertEqual(analysis["totals"]["passed"], 2)
+        self.assertEqual([row["started"] for row in analysis["monthly"]], [1, 1])
+        self.assertEqual(
+            [row["status"] for row in analysis["calendar"]],
+            ["passed", "no_budget", "no_budget", "no_budget",
+             "passed", "no_budget", "no_budget", "no_budget"],
+        )
 
     def test_mt5_validation_preserves_each_selected_lot(self) -> None:
         groups = _validation_groups({"allocations": [

@@ -92,6 +92,25 @@ input[readonly] { color: var(--lime); font-weight: 800; }
 .metric span { color: var(--muted); font-size: 12px; }
 .contract-metrics { padding-top: 2px; }
 .warning { border: 1px solid #6f5424; background: #2b2111; color: #ffd990; border-radius: 9px; padding: 10px; margin: 8px 0; }
+.attempt-analysis { margin-top: 20px; padding: 18px; border: 1px solid #3c6548; border-radius: 14px; background: #08110f; }
+.attempt-analysis h3 { margin: 0; color: var(--ink); font-size: 20px; text-transform: none; letter-spacing: 0; }
+.attempt-layout { display: grid; grid-template-columns: minmax(440px, 1.2fr) minmax(420px, 1fr); gap: 18px; align-items: start; }
+.attempt-layout .table-wrap { margin-top: 0; }
+.attempt-passed { color: var(--lime); font-weight: 800; }
+.attempt-failed { color: var(--red); font-weight: 800; }
+.calendar-legend { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
+.calendar-legend span { border-radius: 999px; padding: 4px 8px; font-size: 11px; }
+.calendar-legend .passed, .calendar-day.passed { background: #27491d; color: #caff9c; }
+.calendar-legend .failed, .calendar-day.failed { background: #4b2225; color: #ffaaa7; }
+.calendar-legend .in-progress, .calendar-day.in-progress { background: #4a3b18; color: #ffe09c; }
+.calendar-legend .no-budget, .calendar-day.no-budget { background: #252d2a; color: var(--muted); }
+.attempt-weekdays, .attempt-calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; }
+.attempt-weekdays { margin-bottom: 5px; color: var(--muted); text-align: center; font-size: 11px; }
+.calendar-day { min-height: 58px; padding: 6px; border: 1px solid var(--line); border-radius: 8px; background: #101b18; }
+.calendar-day b, .calendar-day small { display: block; }
+.calendar-day small { margin-top: 4px; font-size: 9px; line-height: 1.1; }
+.calendar-day.no-data { opacity: .45; }
+.calendar-day.outside { visibility: hidden; }
 .portfolio-result { margin-top: 20px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: #08110f; }
 .portfolio-result .panel-title { margin-bottom: 10px; }
 .portfolio-result h3 { margin: 0; color: var(--ink); font-size: 20px; text-transform: none; letter-spacing: 0; }
@@ -121,6 +140,7 @@ footer { padding: 26px 0 40px; color: var(--muted); font-size: 12px; }
   .method-grid { grid-template-columns: repeat(2, 1fr); }
   .phase-grid { grid-template-columns: 1fr; }
   .comparison-curves { grid-template-columns: 1fr; }
+  .attempt-layout { grid-template-columns: 1fr; }
   .contract-metrics { grid-template-columns: repeat(2, 1fr); }
 }
 

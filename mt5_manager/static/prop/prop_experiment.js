@@ -1,12 +1,13 @@
 const api = "/api/prop-experiment/";
-const numeric = ["bankroll_eur"];
-const switches = ["include_candidates","include_seeds","include_manual_portfolios","active_portfolios_only","auto_continue"];
+const numeric = ["bankroll_eur","evaluation_fee_eur"];
+const switches = ["include_candidates","include_seeds","include_manual_portfolios","active_portfolios_only","include_grids","auto_continue"];
 let config = null;
 let brokerStates = new Map();
 let managedBrokerNode = "";
 let managedSymbol = "";
 let managedSymbolSets = [];
 let phaseTwoRows = [];
+let attemptCalendar = [];
 
 const esc = value => String(value ?? "").replace(/[&<>'"]/g, character => ({
   "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;",
@@ -242,6 +243,7 @@ function clearResult() {
   document.querySelector("#warnings").innerHTML = "";
   document.querySelector("#phase-two-comparison").hidden = true;
   document.querySelector("#phase-three-result").hidden = true;
+  document.querySelector("#attempt-analysis").hidden = true;
   document.querySelector("#axis").textContent = "";
 }
 
@@ -295,7 +297,8 @@ function renderPortfolio(result) {
   const settings = result.settings;
   const contract = document.querySelector("#result-contract");
   contract.hidden = false;
-  contract.innerHTML = metric("Bankroll disponible", `€${number(settings.bankroll_eur)}`)
+  contract.innerHTML = metric("Bankroll mensual", `€${number(settings.bankroll_eur)}`)
+    + metric("Coste por prueba", `€${number(settings.evaluation_fee_eur)}`)
     + metric("Capital de la prueba", `$${number(settings.capital, 0)}`)
     + metric("Apalancamiento por familia", leverageText(profile))
     + metric("Margen estimado", `$${number(portfolio.margin_required)} · ${number(portfolio.margin_pct, 1)}%`)
@@ -303,6 +306,50 @@ function renderPortfolio(result) {
     + metric("DD máximo cerrado", `$${number(portfolio.max_drawdown)}`)
     + metric("Mejor día", `$${number(portfolio.best_day)}`)
     + metric("Peor día", `$${number(portfolio.worst_day)}`);
+}
+
+function renderAttemptMonth(month) {
+  const target = document.querySelector("#attempt-calendar");
+  const [year, monthNumber] = month.split("-").map(Number);
+  const first = new Date(year, monthNumber - 1, 1);
+  const count = new Date(year, monthNumber, 0).getDate();
+  const offset = (first.getDay() + 6) % 7;
+  const byDate = new Map(attemptCalendar.map(item => [item.date, item]));
+  const cells = Array.from({length:offset}, () => '<span class="calendar-day outside"></span>');
+  for (let day = 1; day <= count; day += 1) {
+    const date = `${year}-${String(monthNumber).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const row = byDate.get(date);
+    const status = row?.status || "no-data";
+    const labels = {passed:"Pasada", failed:"Fallada", in_progress:"Portafolio en curso", no_budget:"Bankroll agotado", "no-data":"Sin mercado"};
+    const detail = row?.attempt ? ` · prueba ${row.attempt}` : "";
+    cells.push(`<span class="calendar-day ${esc(status.replace("_", "-"))}" title="${esc(labels[status] + detail)}"><b>${day}</b><small>${esc(row ? labels[status] : "")}</small></span>`);
+  }
+  target.innerHTML = cells.join("");
+}
+
+function renderAttemptAnalysis(result) {
+  const analysis = result.attempt_analysis;
+  const panel = document.querySelector("#attempt-analysis");
+  panel.hidden = !analysis;
+  if (!analysis) return;
+  const totals = analysis.totals || {};
+  const bankroll = analysis.bankroll || {};
+  attemptCalendar = analysis.calendar || [];
+  document.querySelector("#attempt-metrics").innerHTML =
+    metric("Bankroll que se reinicia cada mes", `€${number(bankroll.monthly_eur)}`)
+    + metric("Máximo de pruebas por mes", bankroll.max_attempts_per_month || 0)
+    + metric("Pruebas pasadas", totals.passed || 0)
+    + metric("Pruebas falladas", totals.failed || 0);
+  document.querySelector("#attempt-monthly").innerHTML = (analysis.monthly || []).map(row =>
+    `<tr><td><strong>${esc(row.month)}</strong></td><td>€${number(row.bankroll_eur)}</td><td>€${number(row.spent_eur)}</td><td>${row.started}</td><td class="attempt-passed">${row.passed}</td><td class="attempt-failed">${row.failed}</td><td>${row.in_progress}</td></tr>`
+  ).join("");
+  const months = [...new Set(attemptCalendar.map(item => item.date.slice(0, 7)))];
+  const selector = document.querySelector("#attempt-month");
+  selector.innerHTML = months.map(month => `<option value="${month}">${month}</option>`).join("");
+  if (months.length) {
+    selector.value = months[months.length - 1];
+    renderAttemptMonth(selector.value);
+  }
 }
 
 function renderResult(result) {
@@ -321,6 +368,7 @@ function renderResult(result) {
   document.querySelector("#allocations").innerHTML = result.allocations.map(item => `<tr><td><input type="checkbox" data-prop-exclude="${esc(item.key)}" ${excluded.has(item.key) ? "checked disabled" : ""} aria-label="Excluir ${esc(item.set_id)}"></td><td>${esc(item.origin)}</td><td><span class="badge ${esc(item.source_kind)}">${esc(labels[item.source_kind] || item.source_kind)}</span></td><td title="${esc(item.set_path)}">${esc(item.set_id)}</td><td><strong>${esc(item.symbol)}</strong></td><td>${esc(item.timeframe || "—")}</td><td><strong>${number(item.lot, 2)}</strong></td><td>${esc(item.units)}</td><td>${number(item.net_profit_contribution)}</td><td>${number(item.standalone_valley_dd)}</td><td>${number(item.margin_required)}</td></tr>`).join("");
   syncRepairButton();
   renderPortfolio(result);
+  renderAttemptAnalysis(result);
   renderPhaseTwo(result);
   renderPhaseThree(result);
 }
@@ -415,6 +463,7 @@ document.querySelector("#repair-prop").addEventListener("click", () => {
 });
 document.querySelector("#allocations").addEventListener("change", syncRepairButton);
 document.querySelector("#phase-two-strategy").addEventListener("change", event => renderPhaseTwoStrategy(Number(event.target.value)));
+document.querySelector("#attempt-month").addEventListener("change", event => renderAttemptMonth(event.target.value));
 document.querySelector("#stop").addEventListener("click", () => post("stop"));
 document.querySelector("#broker-symbol-controls").addEventListener("click", event => {
   const manage = event.target.closest("[data-manage-broker-symbol]");
