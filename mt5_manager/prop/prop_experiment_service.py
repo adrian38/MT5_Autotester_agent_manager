@@ -24,13 +24,13 @@ from .prop_experiment_validation import NodeRequest, validate_portfolio
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "profile_id": "the5ers-growth", "capital": 5000.0, "bankroll_eur": 1000.0,
-    "evaluation_fee_eur": 260.0,
+    "evaluation_fee_eur": 52.0,
     "symbol_families": ["Forex", "Metals", "Indices"],
     "source_nodes": [], "include_candidates": True, "include_seeds": True,
     "include_manual_portfolios": True, "active_portfolios_only": False,
     "include_grids": False, "auto_continue": False,
 }
-RESULT_SCHEMA_VERSION = 2
+RESULT_SCHEMA_VERSION = 3
 
 
 class PropExperimentCancelled(RuntimeError):
@@ -72,11 +72,14 @@ def normalize_settings(raw: dict[str, Any], *, migrate: bool = False) -> dict[st
         raise ValueError(f"Campos desconocidos: {', '.join(sorted(unknown))}")
     value = {**DEFAULT_SETTINGS, **raw}
     profile_id, capital, families = _profile_choices(value, migrate)
+    evaluation_fee = safe_float(value["evaluation_fee_eur"], 52.0)
+    if migrate and evaluation_fee == 260.0:
+        evaluation_fee = 52.0
     return {
         "profile_id": profile_id,
         "capital": capital,
         "bankroll_eur": max(safe_float(value["bankroll_eur"], 1000.0), 0.0),
-        "evaluation_fee_eur": max(safe_float(value["evaluation_fee_eur"], 260.0), 0.01),
+        "evaluation_fee_eur": max(evaluation_fee, 0.01),
         "symbol_families": families,
         "source_nodes": [str(item) for item in value["source_nodes"] if str(item)],
         "include_candidates": bool(value["include_candidates"]),

@@ -120,6 +120,9 @@ activo el calendario marca «Portafolio en curso», el día de resolución marca
 «Pasada» o «Fallada» y, cuando el dinero del mes no alcanza para otra compra,
 los días restantes indican «Bankroll agotado». El resultado conserva el
 calendario, los totales y una fila por mes con compras, gasto, saldo y resultados.
+Para la cuenta de 5.000 el valor inicial del campo es 52 €. La primera versión
+usó por error 260 €; al cargar esos ajustes concretos se migran a 52 €, pero
+cualquier otro coste introducido expresamente por el usuario se conserva.
 
 ## Plan de validación prop v1
 

@@ -99,7 +99,7 @@ class PropExperimentRouteTests(unittest.TestCase):
         })
         self.assertEqual(profile["symbol_families"], ["Forex", "Metals", "Indices"])
         self.assertEqual(config["settings"]["bankroll_eur"], 1000.0)
-        self.assertEqual(config["settings"]["evaluation_fee_eur"], 260.0)
+        self.assertEqual(config["settings"]["evaluation_fee_eur"], 52.0)
         self.assertFalse(config["settings"]["include_grids"])
         self.assertFalse(config["settings"]["auto_continue"])
         self.assertEqual([item["id"] for item in config["phases"]], [1, 2, 3])
@@ -142,6 +142,13 @@ class PropExperimentRouteTests(unittest.TestCase):
     def test_unknown_routes_still_fall_through(self) -> None:
         self.assertEqual(self.request("/api/prop-experiment/nope")[0], 404)
         self.assertEqual(self.request("/api/nodes")[0], 200)
+
+    def test_the_accidental_260_fee_is_migrated_but_an_explicit_value_is_kept(self) -> None:
+        coordinator = self.manager.prop_experiments
+        coordinator.stored = {**coordinator.settings(), "evaluation_fee_eur": 260.0}
+        self.assertEqual(coordinator.settings()["evaluation_fee_eur"], 52.0)
+        saved = coordinator.update_settings({"evaluation_fee_eur": 75.0})
+        self.assertEqual(saved["evaluation_fee_eur"], 75.0)
 
     def test_legacy_result_is_not_presented_as_a_valid_prop_portfolio(self) -> None:
         coordinator = self.manager.prop_experiments
