@@ -237,7 +237,6 @@ function clearResult() {
   document.querySelector("#metrics").className = "metrics empty";
   document.querySelector("#metrics").textContent = "Aún no hay un resultado.";
   document.querySelector("#result-contract").hidden = true;
-  document.querySelector("#portfolio-visual").hidden = true;
   document.querySelector("#allocation-table").hidden = true;
   document.querySelector("#allocations").innerHTML = "";
   document.querySelector("#warnings").innerHTML = "";
@@ -287,12 +286,9 @@ function renderPhaseThree(result) {
   window.PortfolioCurveView.renderCurve(document.querySelector("#phase-three-chart"), portfolio.curve || []);
 }
 
-function renderPortfolio(result) {
+function renderPortfolioContract(result) {
   const portfolio = result.portfolio;
-  const target = document.querySelector("#portfolio-visual");
-  target.hidden = !portfolio;
   if (!portfolio) return;
-  window.PortfolioCurveView.renderCurve(document.querySelector("#portfolio-chart"), portfolio.curve);
   const profile = result.profile;
   const settings = result.settings;
   const contract = document.querySelector("#result-contract");
@@ -368,7 +364,7 @@ function renderResult(result) {
   const excluded = new Set(result.excluded_keys || []);
   document.querySelector("#allocations").innerHTML = result.allocations.map(item => `<tr><td><input type="checkbox" data-prop-exclude="${esc(item.key)}" ${excluded.has(item.key) ? "checked disabled" : ""} aria-label="Excluir ${esc(item.set_id)}"></td><td>${esc(item.origin)}</td><td><span class="badge ${esc(item.source_kind)}">${esc(labels[item.source_kind] || item.source_kind)}</span></td><td title="${esc(item.set_path)}">${esc(item.set_id)}</td><td><strong>${esc(item.symbol)}</strong></td><td>${esc(item.timeframe || "—")}</td><td><strong>${number(item.lot, 2)}</strong></td><td>${esc(item.units)}</td><td>${number(item.net_profit_contribution)}</td><td>${number(item.standalone_valley_dd)}</td><td>${number(item.margin_required)}</td></tr>`).join("");
   syncRepairButton();
-  renderPortfolio(result);
+  renderPortfolioContract(result);
   renderAttemptAnalysis(result);
   renderPhaseTwo(result);
   renderPhaseThree(result);

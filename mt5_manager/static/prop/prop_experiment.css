@@ -111,11 +111,6 @@ input[readonly] { color: var(--lime); font-weight: 800; }
 .calendar-day small { margin-top: 4px; font-size: 9px; line-height: 1.1; }
 .calendar-day.no-data { opacity: .45; }
 .calendar-day.outside { visibility: hidden; }
-.portfolio-result { margin-top: 20px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: #08110f; }
-.portfolio-result .panel-title { margin-bottom: 10px; }
-.portfolio-result h3 { margin: 0; color: var(--ink); font-size: 20px; text-transform: none; letter-spacing: 0; }
-.portfolio-result .subtitle { margin: 4px 0 0; color: var(--muted); }
-.portfolio-result .audit-analysis-chart { min-height: 290px; }
 .table-wrap { overflow: auto; margin-top: 18px; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 10px 8px; }

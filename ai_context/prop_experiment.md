@@ -72,8 +72,9 @@ marca de tiempo se agrupan. La prueba empieza sin posiciones arrastradas y,
 tras una pausa, el modelo deja de incorporar cierres de posiciones anteriores
 al siguiente día. Al tocar una barrera de pérdida se usa el saldo de la
 barrera. Esta aproximación carece del flotante tick a tick, del rollover real
-y de la liquidación a precio de mercado. La curva visual sigue siendo el PnL
-cerrado diario de la composición.
+y de la liquidación a precio de mercado. La fase 1 no muestra la curva
+acumulada de la composición: el objetivo se presenta mediante la campaña de
+pruebas, su duración, sus resultados y el consumo mensual de bankroll.
 
 ## Escrituras y ejecución
 
