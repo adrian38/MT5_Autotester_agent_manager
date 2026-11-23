@@ -65,6 +65,19 @@ class CompositionSearch:
                 if self.fits(proposal):
                     yield proposal
 
+    def complementary_seeds(self, ranked):
+        """Cruza las mejores bases con todo el pool, aunque el socio rinda poco solo."""
+        for anchor, anchor_best in ranked[:2]:
+            for units in sorted({1, max(1, anchor_best // 2)}):
+                base = {anchor: units}
+                for partner, hint in ranked:
+                    if partner == anchor:
+                        continue
+                    maximum = self.capacity(partner, base)
+                    if maximum:
+                        for lots in sorted({1, min(hint, maximum)}):
+                            yield {**base, partner: lots}
+
     def lot_changes(self, current, ranked):
         suggested = dict(ranked)
         for key in dict.fromkeys((*current, *suggested)):
@@ -109,6 +122,15 @@ class CompositionSearch:
         singles = [{**base, key: units} for key, units in ranked[:24]]
         pairs = sorted(self.pair_seeds(base, ranked), key=self.rank, reverse=True)
         starts = ([base] if base else []) + singles[:4] + pairs[:4]
+        if not self.required:
+            existing = {tuple(sorted(seed.items())) for seed in starts}
+            complement = max(
+                (seed for seed in self.complementary_seeds(ranked)
+                 if tuple(sorted(seed.items())) not in existing),
+                key=self.rank, default=None,
+            )
+            if complement is not None:
+                starts.append(complement)
         if not starts:
             raise ValueError("Ninguna estrategia cabe en el margen de la cuenta prop")
         best = max(starts, key=self.rank)

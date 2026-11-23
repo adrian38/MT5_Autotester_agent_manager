@@ -30,7 +30,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "include_manual_portfolios": True, "active_portfolios_only": False,
     "include_grids": False, "auto_continue": False,
 }
-RESULT_SCHEMA_VERSION = 6
+RESULT_SCHEMA_VERSION = 7
 
 REPLAY_WARNING = (
     "La campaña usa cierres MT5 ordenados por hora y margen estimado del broker de origen. "

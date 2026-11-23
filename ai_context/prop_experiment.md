@@ -49,6 +49,9 @@ el margen disponible. Con las 24 mejor puntuadas siembra composiciones
 individuales y parejas. Refina varios puntos de partida añadiendo, quitando,
 sustituyendo miembros y reajustando unidades. Es una búsqueda acotada y
 determinista. La composición devuelta es la mejor de las propuestas evaluadas.
+En fase 1 también cruza las dos mejores bases individuales, a lote bajo y
+medio, con el pool entero. Esto descubre estrategias que aportan días de
+beneficio donde la base está inactiva y quedan abajo en el ranking individual.
 
 El simulador exige cobertura de la ventana con las fechas declaradas de las
 pasadas que construyeron la serie. Un día laborable cubierto sin cierres

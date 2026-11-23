@@ -244,6 +244,20 @@ class PropExperimentEngineTests(unittest.TestCase):
         self.assertEqual(found.evaluation.passed, 4)
         self.assertEqual(found.evaluation.median_days, 1)
 
+    def test_phase_one_tests_complements_beyond_the_top_individual_strategies(self) -> None:
+        early = tuple(500.0 if index % 2 == 0 else 0.0 for index in range(9))
+        late = tuple(500.0 - pnl for pnl in early)
+        candidates = [_strategy(f"early{index}", 10.0, early) for index in range(24)]
+        candidates.append(_strategy("late", 10.0, late))
+        pool = executable_pool(
+            [replace(item, margin_per_unit=2500.0) for item in candidates], set(), set(),
+        )
+        axis = LabAxis(tuple(f"2025-01-{day:02d}" for day in range(2, 11)), (0,) * 9, 1)
+        found = search(pool, axis, profile("the5ers-growth"), {"capital": 5000.0})
+        self.assertEqual(found.evaluation.passed, 9)
+        self.assertEqual(found.evaluation.median_days, 1)
+        self.assertEqual(found.allocations.get("late"), 1)
+
     def test_report_replay_checks_coverage_lot_and_intraday_close_order(self) -> None:
         day = "2025-01-02"
         candidate = replace(_strategy("candidate", 10.0, (0.0,)), margin_per_unit=100.0)
