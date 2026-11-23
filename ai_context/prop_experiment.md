@@ -44,17 +44,16 @@ la clave `portfolios`, y el doble de prueba reproduce la forma real del contrato
 
 ## Simulación
 
-Cada estrategia entra con su posición mínima ejecutable real. Los trials empiezan
-en distintos días históricos, siempre que quepa la duración completa de todas
-las fases. Se comprueban objetivo, pérdida diaria, pérdida máxima estática o
-trailing EOD, días mínimos, días rentables, consistencia y margen disponible.
+La búsqueda evalúa varias escalas de lote de cada estrategia elegible, hasta
+el margen disponible. Con las 24 mejor puntuadas siembra composiciones
+individuales y parejas. Refina varios puntos de partida añadiendo, quitando,
+sustituyendo miembros y reajustando unidades. Es una búsqueda acotada y
+determinista. La composición devuelta es la mejor de las propuestas evaluadas.
 
-Desde el 2026-11-22 la pantalla no expone topes de estrategias, unidades, pool
-ni trials. Esos campos recortaban la búsqueda que se pretendía optimizar. El
-motor carga todas las candidatas y seeds válidas, prueba todos los inicios que
-caben en su ventana de simulación y añade posiciones mínimas ejecutables mientras
-mejore el resultado y quede margen de la cuenta prop. El lotaje y la composición
-son resultado, no configuración del usuario.
+El simulador exige cobertura de la ventana con las fechas declaradas de las
+pasadas que construyeron la serie. Un día laborable cubierto sin cierres
+consume tiempo y conserva el saldo. Si falta un tramo de evidencia, la
+estrategia queda fuera y el resultado informa cuántas quedaron excluidas.
 
 El progreso no se oculta en un `<details>`: la pantalla mantiene visible el
 mismo monitor de cinco etapas que generación (fuentes, histórico, evaluación,
@@ -65,9 +64,13 @@ El resultado conserva una copia completa del perfil prop. Los perfiles son
 datos versionados en `prop_profiles.py`; cuando una firma cambie reglas se
 actualiza el perfil y la fecha, no se mueve lógica a UBS.
 
-La curva sólo conoce PnL cerrado diario. Por eso daily loss, equity e intradía
-son aproximaciones y la pantalla exige validar la composición en MT5 antes de
-comprar una evaluación.
+La campaña procesa cierres netos por hora de reporte. Los cierres con misma
+marca de tiempo se agrupan. La prueba empieza sin posiciones arrastradas y,
+tras una pausa, el modelo deja de incorporar cierres de posiciones anteriores
+al siguiente día. Al tocar una barrera de pérdida se usa el saldo de la
+barrera. Esta aproximación carece del flotante tick a tick, del rollover real
+y de la liquidación a precio de mercado. La curva visual sigue siendo el PnL
+cerrado diario de la composición.
 
 ## Escrituras y ejecución
 
@@ -86,8 +89,11 @@ el registro del coordinador, dos delegaciones HTTP y el enlace de cabecera.
 
 La primera fase ya no se llama sólo «búsqueda»: su salida persistente es un
 **Portafolio Prop**, con composición, broker de origen y lote por estrategia.
-Las curvas del pool están normalizadas a 0,01 lotes, por lo que el lote guardado
-es `unidades * 0,01`. La selección usa exclusivamente 2025-01-01 → 2026-06-30.
+Cada broker aporta sus propios mínimos de volumen y nocionales. Para símbolos
+sin mínimo medido se usa el menor volumen positivo observado en la pasada.
+Un informe a lote fijo se reescala al mínimo disponible y el margen se estima
+con los tramos de la prop. La fase 2 recibe exactamente el lote calculado.
+La selección usa exclusivamente 2025-01-01 → 2026-06-30.
 
 La fase 2 congela esa composición y ejecuta en el agente los dos modelos de la
 comprobación manual existente —OHLC M1 y Every Tick— entre 2025-11-20 y
@@ -123,8 +129,10 @@ pausa diaria del 3% termina el día pero no falla la cuenta; sólo el stop-out
 estático del 6% cuenta como fallo. Cada celda del calendario representa la
 prueba que está activa ese día; el final del histórico queda «en curso», no
 fallado. La búsqueda ordena primero por número total de pruebas pasadas, luego
-por menor mediana de días para aprobar y después por tasa de aprobación: una
+por menor mediana de días naturales para aprobar y después por tasa de aprobación: una
 cartera lenta con 100% no vence a otra que pasa más pruebas en el mismo tramo.
+En la tabla mensual, las compras se cuentan en su fecha de inicio, los
+resultados en su fecha de cierre y las cuentas en curso al cierre del mes.
 Para la cuenta de 5.000 el valor inicial del campo es 52 €. La primera versión
 usó por error 260 €; al cargar esos ajustes concretos se migran a 52 €, pero
 cualquier otro coste introducido expresamente por el usuario se conserva.

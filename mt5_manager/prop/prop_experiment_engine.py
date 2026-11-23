@@ -5,13 +5,19 @@ from __future__ import annotations
 import statistics
 from pathlib import Path
 from dataclasses import asdict, dataclass
-from typing import Callable, Sequence
+from datetime import date
+from math import isfinite
+from heapq import merge
+from typing import Callable, Iterator, Sequence
 
 from portfolio_manager.grid_set import set_file_has_enabled_grid
+from portfolio_manager.ubs_portfolio import ClosedTrade
 
 from ..experiment.experiment_lab import LabAxis, LabStrategy
 from .prop_profiles import PropPhase, PropProfile
+from .prop_experiment_search import CompositionSearch
 from .the5ers_hyper_growth_budget import simulate_monthly_campaign
+from .the5ers_hyper_growth_engine import GrowthClose, GrowthDay
 from .the5ers_hyper_growth_rules import rules_for_capital
 
 
@@ -21,6 +27,10 @@ class PropStrategy:
     source_kind: str
     risk_multiplier: float
     series: tuple[float, ...]
+    lot_per_unit: float = 0.01
+    coverage: tuple[tuple[str, str], ...] | None = None
+    closed_trades: tuple[ClosedTrade, ...] = ()
+    closes: dict[int, tuple[GrowthClose, ...]] | None = None
 
 
 @dataclass(frozen=True)
@@ -93,7 +103,7 @@ def credible_pool(
         warnings.append(f"Prop: {grid} estrategia(s) Grid excluidas; requieren riesgo flotante.")
     if include_grids:
         warnings.append(
-            "Prop: Grid habilitado manualmente; el filtro de drawdown cero sigue activo."
+            "Prop: Grid habilitado; los cierres históricos no muestran la pérdida flotante."
         )
     return accepted, warnings
 
@@ -109,6 +119,39 @@ def combined_series(strategies: Sequence[PropStrategy], allocations: dict[str, i
         for index, value in enumerate(strategy.series):
             values[index] += value * units
     return values
+
+
+def _scaled_closes(closes: tuple[GrowthClose, ...], units: int) -> Iterator[GrowthClose]:
+    if units == 1:
+        yield from closes
+    else:
+        for item in closes:
+            yield GrowthClose(item.time, item.opened, item.pnl * units)
+
+
+def growth_series(
+    strategies: Sequence[PropStrategy], allocations: dict[str, int], axis: LabAxis,
+) -> list[float] | list[GrowthDay]:
+    """Combina cierres simultáneos en un mismo calendario, conservando su orden."""
+    selected = [(item, allocations[item.lab.key]) for item in strategies if allocations.get(item.lab.key)]
+    if not selected or any(item.closes is None for item, _units in selected):
+        return combined_series(strategies, allocations)
+    days: dict[int, list[Iterator[GrowthClose]]] = {}
+    for item, units in selected:
+        for index, closes in (item.closes or {}).items():
+            days.setdefault(index, []).append(_scaled_closes(closes, units))
+    return [
+        GrowthDay(0.0, date=day, closes=_merge_day(days.get(index, [])))
+        for index, day in enumerate(axis.days)
+    ]
+
+
+def _merge_day(sources: list[Iterator[GrowthClose]]) -> tuple[GrowthClose, ...]:
+    if len(sources) == 1:
+        return tuple(sources[0])
+    if sources:
+        return tuple(merge(*sources, key=lambda item: item.time))
+    return ()
 
 
 def _phase_ready(
@@ -184,14 +227,17 @@ def evaluate(
     profile: PropProfile, capital: float, max_days: int,
     bankroll_eur: float | None = None, evaluation_fee_eur: float | None = None,
 ) -> Evaluation:
-    series = combined_series(strategies, allocations)
     if profile.profile_id == "the5ers-growth":
         campaign = simulate_monthly_campaign(
-            series, axis.days, rules_for_capital(capital),
+            growth_series(strategies, allocations, axis), axis.days, rules_for_capital(capital),
             float(1000.0 if bankroll_eur is None else bankroll_eur),
             float(52.0 if evaluation_fee_eur is None else evaluation_fee_eur),
         )
-        passed_days = [attempt.days for attempt in campaign.attempts if attempt.passed]
+        passed_days = [
+            (date.fromisoformat(axis.days[attempt.result.end_index - 1])
+             - date.fromisoformat(axis.days[attempt.result.start_index])).days + 1
+            for attempt in campaign.attempts if attempt.passed
+        ]
         completed = campaign.completed
         return Evaluation(
             trials=completed, passed=campaign.passed,
@@ -200,6 +246,7 @@ def evaluate(
             mean_peak_progress_pct=campaign.mean_peak_progress_pct,
             failures={"stop_out": campaign.stop_outs} if campaign.stop_outs else {},
         )
+    series = combined_series(strategies, allocations)
     complete_window = max_days * len(profile.phases)
     last_start = max(len(series) - complete_window + 1, 1)
     starts = list(range(last_start))
@@ -219,19 +266,6 @@ def evaluate(
     )
 
 
-def _eligible_additions(
-    ranked: Sequence[PropStrategy], allocations: dict[str, int], capital: float,
-) -> list[PropStrategy]:
-    used_margin = sum(
-        item.lab.margin_per_unit * allocations.get(item.lab.key, 0)
-        for item in ranked
-    )
-    return [
-        item for item in ranked
-        if used_margin + item.lab.margin_per_unit <= capital + 1e-9
-    ]
-
-
 def search(
     strategies: Sequence[PropStrategy], axis: LabAxis, profile: PropProfile,
     settings: dict[str, float | int], progress: Callable[[str], None] | None = None,
@@ -243,49 +277,28 @@ def search(
         max_days=120, bankroll_eur=float(settings.get("bankroll_eur", 1000.0)),
         evaluation_fee_eur=float(settings.get("evaluation_fee_eur", 52.0)),
     )
-    singles = []
-    for index, item in enumerate(strategies, 1):
-        singles.append((evaluate(strategies, {item.lab.key: 1}, **kwargs), item))
-        if progress:
-            progress(f"Evaluando estrategia {index}/{len(strategies)} · {item.lab.origin}")
-    singles.sort(key=lambda pair: pair[0].score, reverse=True)
-    ranked = [item for _evaluation, item in singles]
-    required = required_keys or set()
-    allocations: dict[str, int] = {
-        item.lab.key: 1 for item in ranked if item.lab.key in required
+    by_key = {
+        item.lab.key: item for item in strategies
+        if isfinite(item.lab.margin_per_unit) and item.lab.margin_per_unit > 0
     }
-    missing = required - set(allocations)
-    if missing:
+    required = required_keys or set()
+    if required - by_key.keys():
         raise ValueError("Faltan estrategias obligatorias para recomponer el Portafolio Prop")
-    required_margin = sum(
-        item.lab.margin_per_unit for item in ranked if item.lab.key in allocations
+
+    def evaluate_proposal(proposal):
+        return evaluate(tuple(by_key[key] for key in proposal), proposal, **kwargs)
+
+    optimizer = CompositionSearch(
+        {key: item.lab.margin_per_unit for key, item in by_key.items()},
+        capital, required, evaluate_proposal, progress,
     )
-    if required_margin > capital + 1e-9:
-        raise ValueError("Las estrategias supervivientes exceden el margen de la cuenta prop")
-    current = evaluate(ranked, allocations, **kwargs)
-    step = 0
-    while True:
-        choices = _eligible_additions(ranked, allocations, capital)
-        if not choices:
-            break
-        evaluated = []
-        for item in choices:
-            proposal = dict(allocations)
-            proposal[item.lab.key] = proposal.get(item.lab.key, 0) + 1
-            evaluated.append((evaluate(ranked, proposal, **kwargs), item, proposal))
-        best, item, proposal = max(evaluated, key=lambda row: row[0].score)
-        if allocations and best.score <= current.score:
-            break
-        allocations, current = proposal, best
-        step += 1
-        if progress:
-            progress(
-                f"Búsqueda {step}: {current.passed} pasadas · "
-                f"mediana {current.median_days:g} días · {current.pass_rate:.1f}% · "
-                f"{sum(allocations.values())} unidades · {item.lab.origin}"
-            )
-    selected = tuple(item for item in ranked if allocations.get(item.lab.key, 0))
-    return SearchResult(allocations, current, selected)
+    allocations, measured = optimizer.run()
+    if progress:
+        progress(
+            f"{measured.passed} pasadas · mediana {measured.median_days:g} días · "
+            f"{measured.pass_rate:.1f}% · {len(optimizer.scores)} composiciones comparadas"
+        )
+    return SearchResult(allocations, measured, tuple(by_key[key] for key in allocations))
 
 
 def _allocation_payload(item: PropStrategy, units: int) -> dict[str, object]:
@@ -294,7 +307,7 @@ def _allocation_payload(item: PropStrategy, units: int) -> dict[str, object]:
         "origin_node": item.lab.origin_node, "source_kind": item.source_kind,
         "set_id": item.lab.set_id, "set_path": item.lab.set_path,
         "symbol": item.lab.symbol, "timeframe": item.lab.timeframe,
-        "units": units, "lot": round(units * 0.01, 8),
+        "units": units, "lot": round(units * item.lot_per_unit, 8),
         "risk_multiplier": item.risk_multiplier,
         "net_profit_contribution": sum(item.series) * units,
         "standalone_valley_dd": item.lab.valley_dd * item.risk_multiplier * units,

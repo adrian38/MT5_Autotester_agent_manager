@@ -243,6 +243,7 @@ def build_lab_strategies(
     portable_symbols: frozenset[str],
     window_months: int = DEFAULT_WINDOW_MONTHS,
     progress: ProgressCallback | None = None,
+    margin_by_node: dict[str, MarginModel] | None = None,
 ) -> tuple[list[LabStrategy], LabAxis, list[str]]:
     """Convierte estrategias cargadas en pool cruzado sobre un eje común."""
     series_by_key, meta, warnings = _dated_strategy_series(strategies)
@@ -255,7 +256,9 @@ def build_lab_strategies(
         if progress and index % 50 == 0:
             progress(f"Recortando series a la ventana: {index}/{len(series_by_key)}")
         candidate = _windowed_strategy(
-            key, series, meta[key], axis, day_positions, margin_model, portable_symbols,
+            key, series, meta[key], axis, day_positions,
+            margin_by_node[meta[key][2]] if margin_by_node is not None else margin_model,
+            portable_symbols,
         )
         if candidate is not None:
             pool.append(candidate)

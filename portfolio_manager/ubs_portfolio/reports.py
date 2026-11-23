@@ -114,6 +114,8 @@ def period_report_from_strategy_report(report: StrategyReport, period_name: str)
         end_date=report.period_end,
         balance_dd_metric_001=balance_dd_metric,
         equity_dd_metric_001=equity_dd_metric,
+        backtest_start=report.backtest_start,
+        backtest_end=report.backtest_end,
     )
 
 
@@ -502,6 +504,10 @@ def _robust_strategy_set(
     curve, curve_points = _merged_equity_curve(
         report_2020_2024, report_2025_2026, closed_history
     )
+    used_reports = (continuous_history,) if continuous_history is not None else (
+        report_2020_2024, report_2025_2026,
+        final_tick.report if final_tick_tail_trades else None,
+    )
     return RobustStrategySet(
         set_id=str(set_id),
         candidate_id=str(candidate_id),
@@ -514,6 +520,10 @@ def _robust_strategy_set(
         report_2025_2026=report_2025_2026,
         closed_trades_2020_2026=closed_history,
         final_tick_tail_trades=final_tick_tail_trades,
+        report_coverage=tuple(
+            (report.backtest_start, report.backtest_end)
+            for report in used_reports if report is not None
+        ),
         **_curve_fields(report_2020_2024, report_2025_2026, curve, curve_points, closed_history),
         **_drawdown_fields(report_2020_2024, report_2025_2026, continuous_history, final_tick),
         **_final_tick_fields(final_tick, continuous_history),

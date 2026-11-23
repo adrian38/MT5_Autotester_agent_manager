@@ -113,6 +113,8 @@ class PeriodReport:
     end_date: str = ""
     balance_dd_metric_001: float = 0.0
     equity_dd_metric_001: float = 0.0
+    backtest_start: str = ""
+    backtest_end: str = ""
 
 
 @dataclass
@@ -151,6 +153,7 @@ class RobustStrategySet:
     full_history_report_path: str = ""
     closed_trades_2020_2026: list[ClosedTrade] = field(default_factory=list)
     final_tick_tail_trades: int = 0
+    report_coverage: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass

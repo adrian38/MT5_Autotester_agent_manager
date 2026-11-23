@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import date
 from typing import Any
 
-from .prop_experiment_engine import SearchResult, combined_series
+from .prop_experiment_engine import SearchResult, growth_series
 from .prop_profiles import PropProfile
 from .the5ers_hyper_growth_budget import BudgetAttempt, simulate_monthly_campaign
 from .the5ers_hyper_growth_rules import rules_for_capital
@@ -32,7 +33,9 @@ def _calendar_rows(days: tuple[str, ...], attempts: tuple[BudgetAttempt, ...]) -
             finish = attempt.end_index - 1
             rows[finish].update({
                 "status": "passed" if attempt.passed else "failed",
-                "days": attempt.days, "reason": attempt.reason,
+                "days": (date.fromisoformat(days[finish])
+                         - date.fromisoformat(days[attempt.start_index])).days + 1,
+                "reason": attempt.reason,
                 "peak_progress_pct": attempt.peak_progress_pct,
             })
     return rows
@@ -48,22 +51,27 @@ def _monthly_rows(
     spent: dict[str, float], bankroll: float,
 ) -> list[dict[str, Any]]:
     months: dict[str, dict[str, Any]] = defaultdict(lambda: _empty_month(bankroll))
-    for day in days:
-        months[day[:7]]
+    month_ends = {day[:7]: index for index, day in enumerate(days)}
+    for month in month_ends:
+        months[month]
     for month, value in spent.items():
         months[month]["spent_eur"] = value
         months[month]["remaining_eur"] = bankroll - value
     for funded in attempts:
         months[funded.charged_month]["started"] += 1
+        attempt = funded.result
         outcome = months[_outcome_month(days, funded)]
-        outcome["daily_pauses"] += funded.result.daily_pauses
+        for index in attempt.pause_indices:
+            months[days[index][:7]]["daily_pauses"] += 1
+        last_active = attempt.end_index - 1 - int(attempt.completed)
+        for month, index in month_ends.items():
+            if attempt.start_index <= index <= last_active:
+                months[month]["in_progress"] += 1
         if funded.result.passed:
             outcome["passed"] += 1
         elif funded.result.completed:
             outcome["failed"] += 1
             outcome["failures"]["stop_out"] = outcome["failures"].get("stop_out", 0) + 1
-        else:
-            outcome["in_progress"] += 1
     return [{"month": month, **values} for month, values in sorted(months.items())]
 
 
@@ -74,7 +82,7 @@ def attempt_analysis(
     bankroll = float(settings["bankroll_eur"])
     fee = float(settings["evaluation_fee_eur"])
     campaign = simulate_monthly_campaign(
-        combined_series(result.strategies, result.allocations), axis.days,
+        growth_series(result.strategies, result.allocations, axis), axis.days,
         rules_for_capital(float(settings["capital"])), bankroll, fee,
     )
     monthly = _monthly_rows(axis.days, campaign.attempts, campaign.spent_by_month, bankroll)

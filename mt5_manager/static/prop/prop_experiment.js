@@ -337,7 +337,7 @@ function renderAttemptAnalysis(result) {
   attemptCalendar = analysis.calendar || [];
   document.querySelector("#attempt-metrics").innerHTML =
     metric("Bankroll que se reinicia cada mes", `€${number(bankroll.monthly_eur)}`)
-    + metric("Máximo de pruebas por mes", bankroll.max_attempts_per_month || 0)
+    + metric("Máximo mensual por presupuesto", bankroll.max_attempts_per_month || 0)
     + metric("Pruebas pasadas", totals.passed || 0)
     + metric("Pruebas falladas", totals.failed || 0)
     + metric("Pausas diarias · no son fallo", totals.daily_pauses || 0);

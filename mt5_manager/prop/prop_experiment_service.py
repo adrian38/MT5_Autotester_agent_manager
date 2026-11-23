@@ -10,11 +10,11 @@ from typing import Any, Callable
 
 from ..common import load_json, safe_float, save_json, utc_now
 from .prop_experiment_engine import (
-    SearchResult, credible_pool, evaluate, executable_pool, result_payload, search,
+    SearchResult, credible_pool, evaluate, result_payload, search,
 )
 from .prop_experiment_periods import (
     PHASE_ONE_FROM, PHASE_ONE_TO, PHASE_THREE_FROM, PHASE_THREE_TO,
-    PHASE_TWO_FROM, PHASE_TWO_TO, windowed_pool,
+    PHASE_TWO_FROM, PHASE_TWO_TO, replay_window,
 )
 from .prop_experiment_pool import load_pool
 from .prop_experiment_reporting import attempt_analysis
@@ -30,7 +30,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "include_manual_portfolios": True, "active_portfolios_only": False,
     "include_grids": False, "auto_continue": False,
 }
-RESULT_SCHEMA_VERSION = 5
+RESULT_SCHEMA_VERSION = 6
+
+REPLAY_WARNING = (
+    "La campaña usa cierres MT5 ordenados por hora y margen estimado del broker de origen. "
+    "La equity flotante, el rollover y la liquidación intradía requieren datos tick de la cuenta prop."
+)
 
 
 class PropExperimentCancelled(RuntimeError):
@@ -226,14 +231,16 @@ class PropExperimentCoordinator:
                 raise ValueError("Ya hay una fase del Portafolio Prop en curso")
             self.cancel = threading.Event()
             self.log_lines.clear()
+            settings = dict(self.result["settings"])
+            settings["auto_continue"] = self.settings()["auto_continue"]
             self.job = {
                 "status": "running", "started_at": utc_now(), "finished_at": None,
                 "progress": "Preparando la recomposición" if phase == 2 else "Preparando validación 2020–2024",
-                "error": None, "settings": self.settings(), "phase": phase,
+                "error": None, "settings": settings, "phase": phase,
                 "operation": operation,
             }
         threading.Thread(
-            target=self._worker, args=(operation, self.settings(), payload), daemon=True,
+            target=self._worker, args=(operation, settings, payload), daemon=True,
         ).start()
         return self.state()
 
@@ -264,28 +271,27 @@ class PropExperimentCoordinator:
         return self.state()
 
     def _load_executable(self, settings: dict[str, Any]):
-        pool, axis, seed_keys, manual_keys, warnings, origins = load_pool(
+        pool, axis, warnings, origins = load_pool(
             settings, self.source_factory, self._checkpoint, self.active_members_factory,
             self.symbol_settings_factory,
         )
         if not pool or not axis.size:
             raise ValueError("El pool no tiene días operables en la ventana elegida")
-        executable = executable_pool(pool, seed_keys, manual_keys)
         executable, credibility_warnings = credible_pool(
-            executable, bool(settings["include_grids"]),
+            pool, bool(settings["include_grids"]),
         )
         if not executable:
             raise ValueError("El pool no contiene estrategias con riesgo cerrado medible")
-        return executable, axis, warnings + credibility_warnings, origins, (
-            len(pool), len(seed_keys), len(manual_keys)
-        )
+        return executable, axis, warnings + credibility_warnings, origins
 
     def _run_build(self, settings: dict[str, Any]) -> None:
-        executable, full_axis, warnings, origins, counts = self._load_executable(settings)
-        executable, axis = windowed_pool(
+        executable, full_axis, warnings, origins = self._load_executable(settings)
+        executable, axis, coverage_warnings = replay_window(
             executable, full_axis, PHASE_ONE_FROM, PHASE_ONE_TO,
         )
-        pool_count, seed_count, manual_count = counts
+        pool_count = len(executable)
+        seed_count = sum(item.source_kind == "seed" for item in executable)
+        manual_count = sum(item.source_kind == "manual" for item in executable)
         self._checkpoint(
             f"Buscando con {pool_count} estrategias "
             f"({seed_count} seeds, {manual_count} manuales)"
@@ -304,9 +310,7 @@ class PropExperimentCoordinator:
                 "manual": manual_count,
                 "candidates": pool_count - seed_count - manual_count,
             },
-            "origins": origins, "warnings": warnings + [
-                "El drawdown diario e intradía se aproxima con PnL cerrado diario; validar la cartera en MT5 antes de comprar una prueba."
-            ],
+            "origins": origins, "warnings": warnings + coverage_warnings + [REPLAY_WARNING],
             "axis": {"from": axis.days[0], "to": axis.days[-1], "days": axis.size},
             "phase_one": {"status": "completed", "from": PHASE_ONE_FROM, "to": PHASE_ONE_TO},
             "phase_two": {"status": "pending", "from": PHASE_TWO_FROM, "to": PHASE_TWO_TO},
@@ -324,17 +328,20 @@ class PropExperimentCoordinator:
         return set(allocations), allocations
 
     def _run_repair(self, settings: dict[str, Any], payload: dict[str, Any]) -> None:
-        excluded = set(payload["excluded_keys"])
+        newly_excluded = set(payload["excluded_keys"])
         current_keys, _old_units = self._current_keys_and_units()
-        unknown = excluded - current_keys
+        unknown = newly_excluded - current_keys
         if unknown:
             raise ValueError("La exclusión contiene estrategias ajenas al Portafolio Prop")
-        required = current_keys - excluded
+        excluded = newly_excluded | set((self.result or {}).get("excluded_keys") or ())
+        required = current_keys - newly_excluded
         if not required:
             raise ValueError("No se pueden excluir todas las estrategias del Portafolio Prop")
-        executable, full_axis, warnings, origins, counts = self._load_executable(settings)
-        executable, axis = windowed_pool(executable, full_axis, PHASE_ONE_FROM, PHASE_ONE_TO)
+        executable, full_axis, warnings, origins = self._load_executable(settings)
         executable = [item for item in executable if item.lab.key not in excluded]
+        executable, axis, coverage_warnings = replay_window(
+            executable, full_axis, PHASE_ONE_FROM, PHASE_ONE_TO,
+        )
         found = search(
             executable, axis, profile(settings["profile_id"]), settings,
             self._checkpoint, required_keys=required,
@@ -347,10 +354,11 @@ class PropExperimentCoordinator:
         previous.pop("previous_revision", None)
         updated.update({
             **{key: value for key, value in (self.result or {}).items()
-               if key not in {"allocations", "evaluation", "portfolio", "axis", "finished_at"}},
+               if key not in {"allocations", "evaluation", "portfolio", "attempt_analysis",
+                              "axis", "finished_at"}},
             "revision": int((self.result or {}).get("revision") or 1) + 1,
             "previous_revision": previous,
-            "origins": origins, "warnings": warnings,
+            "origins": origins, "warnings": warnings + coverage_warnings + [REPLAY_WARNING],
             "excluded_keys": sorted(excluded),
             "axis": {"from": axis.days[0], "to": axis.days[-1], "days": axis.size},
             "phase_two": {
@@ -388,18 +396,24 @@ class PropExperimentCoordinator:
         save_json(self.result_path, updated)
 
     def _run_validate(self, settings: dict[str, Any]) -> None:
-        executable, full_axis, _warnings, _origins, _counts = self._load_executable(settings)
-        executable, axis = windowed_pool(executable, full_axis, PHASE_THREE_FROM, PHASE_THREE_TO)
+        executable, full_axis, _warnings, _origins = self._load_executable(settings)
         current_keys, units = self._current_keys_and_units()
-        selected = tuple(item for item in executable if item.lab.key in current_keys)
+        selected, axis, warnings = replay_window(
+            [item for item in executable if item.lab.key in current_keys],
+            full_axis, PHASE_THREE_FROM, PHASE_THREE_TO,
+        )
         if len(selected) != len(current_keys):
-            raise ValueError("No se pudieron recuperar todas las estrategias del Portafolio Prop")
+            raise ValueError("Falta histórico verificable 2020–2024 de alguna estrategia: " + " ".join(warnings))
+        frozen_lots = {row["key"]: row["lot"] for row in self.result["allocations"]}
+        if any(round(item.lot_per_unit * units[item.lab.key], 8) != frozen_lots[item.lab.key]
+               for item in selected):
+            raise ValueError("Cambió el lote mínimo del broker desde la fase 1. Recalcula el portafolio.")
         measured = evaluate(
             selected, units, axis, profile(settings["profile_id"]),
             float(settings["capital"]), 120,
             float(settings["bankroll_eur"]), float(settings["evaluation_fee_eur"]),
         )
-        frozen = SearchResult(units, measured, selected)
+        frozen = SearchResult(units, measured, tuple(selected))
         validation = result_payload(frozen, axis, float(settings["capital"]))
         validation["attempt_analysis"] = attempt_analysis(
             frozen, axis, profile(settings["profile_id"]), settings,

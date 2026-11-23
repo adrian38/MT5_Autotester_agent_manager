@@ -94,6 +94,7 @@ def _seed_strategy(row: dict[str, Any], source: Any, parse: Callable[[Path], Any
         max_balance_dd_001=period.balance_dd_metric_001,
         max_equity_dd_001=period.equity_dd_metric_001,
         closed_trades_2020_2026=list(period.closed_trades),
+        report_coverage=((period.backtest_start, period.backtest_end),),
     )
 
 

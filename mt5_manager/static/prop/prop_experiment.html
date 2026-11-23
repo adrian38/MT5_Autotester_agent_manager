@@ -89,7 +89,7 @@
         <div class="comparison-head"><div><p class="eyebrow">BANKROLL MENSUAL</p><h3>Pruebas financiadas y calendario</h3></div><label>Mes<select id="attempt-month"></select></label></div>
         <div id="attempt-metrics" class="metrics"></div>
         <div class="attempt-layout">
-          <div class="table-wrap"><table><thead><tr><th>Mes</th><th>Bankroll</th><th>Gastado</th><th>Pruebas</th><th>Pasadas</th><th>Falladas</th><th>En curso</th><th>Pausas 3%</th></tr></thead><tbody id="attempt-monthly"></tbody></table></div>
+          <div class="table-wrap"><table><thead><tr><th>Mes</th><th>Bankroll</th><th>Gastado</th><th>Iniciadas</th><th>Pasadas</th><th>Falladas</th><th>En curso al cierre</th><th>Pausas 3%</th></tr></thead><tbody id="attempt-monthly"></tbody></table></div>
           <div><div class="calendar-legend"><span class="passed">Pasada</span><span class="failed">Fallada</span><span class="in-progress">Portafolio en curso</span><span class="no-budget">Bankroll agotado</span></div><div class="attempt-weekdays"><span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span></div><div id="attempt-calendar" class="attempt-calendar"></div></div>
         </div>
       </section>
@@ -127,7 +127,7 @@
       <div id="plan-profiles" class="plan-profiles"></div>
     </section>
   </main>
-  <footer>Simulación orientativa: usa PnL cerrado diario. La validación final debe ejecutarse en MT5 con equity e intradía.</footer>
+  <footer>La campaña simula los cierres en orden horario. Los reportes no muestran el recorrido de la equity flotante entre cierres.</footer>
   <dialog id="prop-symbol-dialog" class="log-dialog symbol-manager-dialog">
     <div class="dialog-head"><div><p class="eyebrow">GESTIÓN POR SÍMBOLO Y BROKER</p><h2 id="prop-symbol-title">Sets del símbolo</h2><p id="prop-symbol-summary" class="subtitle"></p></div><button type="button" class="icon-button" data-prop-symbol-close aria-label="Cerrar">×</button></div>
     <fieldset><legend>Disponibilidad del símbolo</legend><label class="symbol-disable-option"><input id="prop-symbol-disabled" type="checkbox"> Deshabilitar en generaciones UBS y en Experimenta Prop para este broker</label></fieldset>

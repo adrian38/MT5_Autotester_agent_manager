@@ -9,7 +9,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 from portfolio_manager.ubs_portfolio import (
+    MarginModel,
+    RobustStrategySet,
     load_robust_sets_from_rows,
+    load_symbol_notional,
     portfolio_group_key,
 )
 
@@ -18,6 +21,7 @@ from ..experiment.experiment_seed_sets import load_seed_sets
 from ..portfolio.portfolio_coordinator_core import _relocated_member
 from ..portfolio.portfolio_identity import _allocation_source_rows
 from ..portfolio.portfolio_service import build_margin_model, cached_report
+from .prop_experiment_engine import PropStrategy, executable_pool
 from .prop_profiles import profile
 
 
@@ -154,9 +158,14 @@ def _prop_margin_model(source: Any, settings: dict[str, Any]) -> Any:
     base = build_margin_model(source, {
         "margin_profile": source.broker.lower(), "account_leverage": leverage,
     })
+    normalization = getattr(source, "normalization", None)
+    fallback_notional, _groups, origin = load_symbol_notional(normalization) if normalization else ({}, {}, "")
     return replace(
         base, profile=prop_profile.profile_id, account_leverage=leverage,
         group_leverage=dict(prop_profile.leverage_by_family),
+        symbol_margin={}, max_product_leverage={},
+        symbol_notional={**fallback_notional, **base.symbol_notional},
+        group_notional={}, notional_source=base.notional_source or origin,
         stock_leverage=leverage, default_leverage=leverage,
     )
 
@@ -214,13 +223,13 @@ def load_pool(
     checkpoint: Callable[[str], None],
     active_members_factory: Callable[[str, Any], list[dict[str, Any]]] | None = None,
     symbol_settings_factory: Callable[[str], dict[str, Any]] | None = None,
-) -> tuple[list[lab.LabStrategy], lab.LabAxis, set[str], set[str], list[str], dict[str, Any]]:
-    loaded: list[tuple[Any, str, str]] = []
+) -> tuple[list[PropStrategy], lab.LabAxis, list[str], dict[str, Any]]:
+    loaded: list[tuple[RobustStrategySet, str, str]] = []
     seed_ids: set[str] = set()
     manual_ids: set[str] = set()
     warnings: list[str] = []
     origins: dict[str, Any] = {}
-    first_source = None
+    margins: dict[str, MarginModel] = {}
     for node_id in settings["source_nodes"]:
         try:
             source = source_factory(node_id)
@@ -233,7 +242,7 @@ def load_pool(
             items, ids, manual, meta = load_origin(
                 source, node_id, origin_settings, warnings, checkpoint, allowed,
             )
-            first_source = first_source or source
+            margins[node_id] = _prop_margin_model(source, settings)
             loaded.extend(items)
             seed_ids.update(ids)
             manual_ids.update(manual)
@@ -244,14 +253,37 @@ def load_pool(
                 "error": str(exc), "candidates_loaded": 0,
                 "seeds_loaded": 0, "manual_loaded": 0,
             }
-    if not loaded or first_source is None:
+    if not loaded:
         raise ValueError("Ningún broker devolvió estrategias cargables")
-    margin = _prop_margin_model(first_source, settings)
+    return _assemble_pool(loaded, margins, seed_ids, manual_ids, warnings, origins, checkpoint)
+
+
+def _assemble_pool(loaded, margins, seed_ids, manual_ids, warnings, origins, checkpoint):
     pool, axis, notes = lab.build_lab_strategies(
-        loaded, margin_model=margin, portable_symbols=frozenset(),
-        window_months=0, progress=checkpoint,
+        loaded, margin_model=next(iter(margins.values())), portable_symbols=frozenset(),
+        window_months=0, progress=checkpoint, margin_by_node=margins,
     )
     warnings.extend(notes)
     seed_keys = {item.key for item in pool if item.set_id in seed_ids}
     manual_keys = {item.key for item in pool if item.set_id in manual_ids}
-    return pool, axis, seed_keys, manual_keys, warnings, origins
+    evidence = {(node, item.set_id): item for item, _broker, node in loaded}
+    executable = executable_pool(pool, seed_keys, manual_keys)
+    return [_with_evidence(item, evidence, margins) for item in executable], axis, warnings, origins
+
+
+def _with_evidence(
+    item: PropStrategy, evidence: dict[tuple[str, str], RobustStrategySet],
+    margins: dict[str, MarginModel],
+) -> PropStrategy:
+    node = item.lab.origin_node
+    raw = evidence[node, item.lab.set_id]
+    model = margins[node]
+    symbol = item.lab.symbol_key
+    lot = model.symbol_min_lot.get(symbol, 0.0)
+    margin = item.lab.margin_per_unit
+    if model.notional_for(item.lab.symbol) is None and symbol not in model.symbol_contract_size:
+        margin = float("inf")
+    return replace(
+        item, lot_per_unit=lot, lab=replace(item.lab, margin_per_unit=margin),
+        closed_trades=tuple(raw.closed_trades_2020_2026), coverage=raw.report_coverage,
+    )

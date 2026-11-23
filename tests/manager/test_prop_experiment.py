@@ -3,22 +3,28 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
+from datetime import datetime
 
 from mt5_manager.experiment.experiment_lab import LabAxis, LabStrategy
 from mt5_manager.prop.prop_experiment_engine import (
-    _eligible_additions,
     credible_pool,
     Evaluation,
     SearchResult,
     result_payload,
     executable_pool,
+    evaluate,
     search,
     simulate_trial,
 )
 from mt5_manager.prop.prop_experiment_reporting import attempt_analysis
-from mt5_manager.prop.prop_experiment_periods import windowed_pool
+from mt5_manager.prop.prop_experiment_periods import replay_window
 from mt5_manager.prop.prop_experiment_validation import _validation_groups
 from mt5_manager.prop.prop_profiles import PropPhase, PropProfile, profile
+from mt5_manager.prop.the5ers_hyper_growth_engine import GrowthClose, GrowthDay
+from mt5_manager.prop.the5ers_hyper_growth_budget import simulate_monthly_campaign
+from mt5_manager.prop.the5ers_hyper_growth_rules import HYPER_GROWTH_5K
+from portfolio_manager.ubs_portfolio import ClosedTrade
 
 
 def _profile(phase: PropPhase) -> PropProfile:
@@ -30,7 +36,7 @@ def _strategy(key: str, valley: float, series: tuple[float, ...]) -> LabStrategy
         key=key, origin="IC", origin_node="ic", set_id=key, symbol="EURUSD",
         symbol_key="EURUSD", timeframe="H1", set_path=f"{key}.set", series=series,
         net=sum(series), valley_dd=valley, active_days=len(series),
-        margin_per_unit=0.0, portable=True, portability="measured",
+        margin_per_unit=100.0, portable=True, portability="measured",
     )
 
 
@@ -97,15 +103,6 @@ class PropExperimentEngineTests(unittest.TestCase):
         self.assertEqual(payload["portfolio"]["max_drawdown"], 10.0)
         self.assertEqual(len(payload["portfolio"]["curve"]), 3)
         self.assertEqual(payload["allocations"][0]["lot"], 0.02)
-
-    def test_a_phase_uses_only_its_declared_dates(self) -> None:
-        normalized = executable_pool(
-            [_strategy("candidate", 100.0, (1.0, 2.0, 3.0))], set(), set(),
-        )
-        axis = LabAxis(("2024-12-31", "2025-01-01", "2026-07-01"), (0, 1, 2), 3)
-        pool, window = windowed_pool(normalized, axis, "2025-01-01", "2026-06-30")
-        self.assertEqual(window.days, ("2025-01-01",))
-        self.assertEqual(pool[0].series, (2.0,))
 
     def test_repair_keeps_survivors_and_rebuilds_their_lots(self) -> None:
         normalized = executable_pool([
@@ -176,6 +173,30 @@ class PropExperimentEngineTests(unittest.TestCase):
              "passed", "no_budget", "no_budget", "no_budget"],
         )
 
+    def test_monthly_bankroll_pays_at_most_nineteen_completed_sequential_trials(self) -> None:
+        days = tuple(f"2025-01-{day:02d}" for day in range(1, 21))
+        campaign = simulate_monthly_campaign((500.0,) * 20, days, HYPER_GROWTH_5K, 1000, 52)
+        self.assertEqual(campaign.passed, 19)
+        self.assertEqual(campaign.spent_by_month, {"2025-01": 988.0})
+        self.assertTrue(all(
+            prior.result.end_index == following.result.start_index
+            for prior, following in zip(campaign.attempts, campaign.attempts[1:])
+        ))
+
+    def test_next_trial_does_not_credit_trades_opened_in_previous_account(self) -> None:
+        days = ("2025-01-31", "2025-02-03", "2025-02-04")
+        replay = [
+            GrowthDay(
+                0, date=day, closes=(GrowthClose(datetime.fromisoformat(day), opened, 500),),
+            )
+            for day, opened in zip(days, (days[0], days[0], days[1]))
+        ]
+        campaign = simulate_monthly_campaign(replay, days, HYPER_GROWTH_5K, 1000, 52)
+        self.assertEqual([(row.result.start_index, row.result.end_index) for row in campaign.attempts],
+                         [(0, 1), (1, 3)])
+        self.assertEqual(campaign.passed, 2)
+        self.assertEqual(campaign.spent_by_month, {"2025-01": 52.0, "2025-02": 52.0})
+
     def test_search_prefers_more_sequential_passes_over_a_slower_perfect_rate(self) -> None:
         slow = Evaluation(7, 7, 100.0, 34.0, 100.0, {})
         fast = Evaluation(30, 12, 40.0, 4.0, 100.0, {"stop_out": 18})
@@ -196,14 +217,56 @@ class PropExperimentEngineTests(unittest.TestCase):
             ("ic", 0.01, 1), ("ic", 0.03, 2),
         ])
 
-    def test_an_executable_strategy_has_no_arbitrary_unit_cap(self) -> None:
-        normalized = executable_pool(
-            [_strategy("candidate", 1.0, (1.0,))], set(), set(),
+    def test_search_can_jump_across_a_plateau_in_lot_size(self) -> None:
+        candidate = replace(_strategy("candidate", 1.0, (4.0,)), margin_per_unit=1.0)
+        found = search(
+            executable_pool([candidate], set(), set()),
+            LabAxis(("2025-01-02",), (0,), 1), profile("the5ers-growth"),
+            {"capital": 5000.0},
         )
-        self.assertEqual(
-            _eligible_additions(normalized, {"candidate": 100}, 100.0),
-            normalized,
+        self.assertEqual(found.evaluation.passed, 1)
+        self.assertGreaterEqual(found.allocations["candidate"], 125)
+
+    def test_search_finds_pair_that_outranks_best_single(self) -> None:
+        candidates = [
+            replace(_strategy(key, 1.0, series), margin_per_unit=2500)
+            for key, series in [
+                ("early", (450.0, 100.0, 450.0, 100.0)),
+                ("late", (50.0, 400.0, 50.0, 400.0)),
+            ]
+        ]
+        found = search(
+            executable_pool(candidates, set(), set()),
+            LabAxis(tuple(f"2025-01-0{day}" for day in range(2, 6)), (0,) * 4, 1),
+            profile("the5ers-growth"), {"capital": 5000.0},
         )
+        self.assertEqual(found.allocations, {"early": 1, "late": 1})
+        self.assertEqual(found.evaluation.passed, 4)
+        self.assertEqual(found.evaluation.median_days, 1)
+
+    def test_report_replay_checks_coverage_lot_and_intraday_close_order(self) -> None:
+        day = "2025-01-02"
+        candidate = replace(_strategy("candidate", 10.0, (0.0,)), margin_per_unit=100.0)
+        item = executable_pool([candidate], set(), set())[0]
+        trades = tuple(
+            ClosedTrade(datetime(2025, 1, 2, 8), datetime(2025, 1, 2, hour),
+                        "EURUSD", 0.2, pnl)
+            for hour, pnl in ((9, -400.0), (10, 1500.0))
+        )
+        item = replace(item, lot_per_unit=0.1, coverage=((day, day),), closed_trades=trades)
+        incomplete = replace(item, coverage=())
+        items, axis, warnings = replay_window([item, incomplete], LabAxis((day,), (0,), 1), day, day)
+        self.assertEqual(len(items), 1)
+        self.assertIn("sin cobertura", warnings[0])
+        measured = evaluate(items, {"candidate": 1}, axis, profile("the5ers-growth"), 5000, 120)
+        result = SearchResult({"candidate": 1}, measured, tuple(items))
+        analysis = attempt_analysis(result, axis, profile("the5ers-growth"), {
+            "capital": 5000, "bankroll_eur": 1000, "evaluation_fee_eur": 52,
+        })
+        self.assertEqual(measured.passed, 0)
+        self.assertEqual(analysis["totals"]["daily_pauses"], 1)
+        self.assertAlmostEqual(result_payload(result, axis, 5000)["portfolio"]["net_profit"], 550.0)
+        self.assertEqual(_validation_groups(result_payload(result))[0][1], 0.1)
 
 
 if __name__ == "__main__":

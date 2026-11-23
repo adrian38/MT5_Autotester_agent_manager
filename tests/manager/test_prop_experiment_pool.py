@@ -9,6 +9,7 @@ from unittest import mock
 
 from portfolio_manager.ubs_portfolio import MarginModel
 from mt5_manager.prop import prop_experiment_pool as pool
+from tests.manager.test_experiment_lab import strategy
 
 
 class _Source:
@@ -79,6 +80,23 @@ class PropExperimentPoolTests(unittest.TestCase):
         self.assertEqual(model.leverage_for("EURUSD"), 30.0)
         self.assertEqual(model.leverage_for("XAUUSD"), 25.0)
         self.assertEqual(model.leverage_for("US500"), 25.0)
+
+    def test_origin_models_supply_each_strategys_margin_and_lot(self) -> None:
+        rows = [
+            (strategy(node, "EURUSD", {"2025-01-02": 10.0}), node, node)
+            for node in ("IC", "AXI")
+        ]
+        margins = {
+            "IC": MarginModel(default_leverage=25.0, symbol_min_lot={"EURUSD": 0.1},
+                              symbol_notional={"EURUSD": 250.0}),
+            "AXI": MarginModel(default_leverage=25.0, symbol_min_lot={"EURUSD": 1.0},
+                               symbol_notional={"EURUSD": 1250.0}),
+        }
+        items, _, _, _ = pool._assemble_pool(rows, margins, set(), set(), [], {}, lambda _: None)
+        self.assertEqual(
+            {item.lab.origin: (item.lot_per_unit, item.lab.margin_per_unit) for item in items},
+            {"IC": (0.1, 10.0), "AXI": (1.0, 50.0)},
+        )
 
     def test_active_filter_is_independent_from_the_selected_sources(self) -> None:
         callback = mock.Mock(return_value=[{"set_path": "C:/live/Only.set"}])
