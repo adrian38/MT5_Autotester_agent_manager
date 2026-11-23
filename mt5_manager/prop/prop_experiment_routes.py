@@ -45,7 +45,7 @@ def handle_post(handler: Any, parsed: urllib.parse.ParseResult) -> bool:
     if not parsed.path.startswith(API_PREFIX):
         return False
     action = parsed.path[len(API_PREFIX):]
-    if action not in {"settings", "run", "stop"}:
+    if action not in {"settings", "run", "validate-mt5", "repair", "validate-history", "stop"}:
         return False
     coordinator = handler.server.prop_experiments
     try:
@@ -54,6 +54,12 @@ def handle_post(handler: Any, parsed: urllib.parse.ParseResult) -> bool:
             handler._send_json(200, {"settings": coordinator.update_settings(body)})
         elif action == "run":
             handler._send_json(200, coordinator.start(body))
+        elif action == "repair":
+            handler._send_json(200, coordinator.repair(body))
+        elif action == "validate-mt5":
+            handler._send_json(200, coordinator.validate_mt5())
+        elif action == "validate-history":
+            handler._send_json(200, coordinator.validate_history())
         else:
             handler._send_json(200, coordinator.stop())
     except (ValueError, OSError, sqlite3.Error) as exc:

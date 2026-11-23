@@ -11,8 +11,11 @@ from mt5_manager.prop.prop_experiment_engine import (
     SearchResult,
     result_payload,
     executable_pool,
+    search,
     simulate_trial,
 )
+from mt5_manager.prop.prop_experiment_periods import windowed_pool
+from mt5_manager.prop.prop_experiment_validation import _validation_groups
 from mt5_manager.prop.prop_profiles import PropPhase, PropProfile, profile
 
 
@@ -91,6 +94,39 @@ class PropExperimentEngineTests(unittest.TestCase):
         self.assertEqual(payload["portfolio"]["net_profit"], 50.0)
         self.assertEqual(payload["portfolio"]["max_drawdown"], 10.0)
         self.assertEqual(len(payload["portfolio"]["curve"]), 3)
+        self.assertEqual(payload["allocations"][0]["lot"], 0.02)
+
+    def test_a_phase_uses_only_its_declared_dates(self) -> None:
+        normalized = executable_pool(
+            [_strategy("candidate", 100.0, (1.0, 2.0, 3.0))], set(), set(),
+        )
+        axis = LabAxis(("2024-12-31", "2025-01-01", "2026-07-01"), (0, 1, 2), 3)
+        pool, window = windowed_pool(normalized, axis, "2025-01-01", "2026-06-30")
+        self.assertEqual(window.days, ("2025-01-01",))
+        self.assertEqual(pool[0].series, (2.0,))
+
+    def test_repair_keeps_survivors_and_rebuilds_their_lots(self) -> None:
+        normalized = executable_pool([
+            _strategy("survivor", 10.0, (200.0,) * 130),
+            _strategy("addition", 10.0, (100.0,) * 130),
+        ], set(), set())
+        axis = LabAxis(tuple(f"2025-01-{(index % 28) + 1:02d}" for index in range(130)), (0,) * 130, 1)
+        found = search(
+            normalized, axis,
+            _profile(PropPhase("Evaluation", 1.0, 50.0, 50.0)),
+            {"capital": 5000.0}, required_keys={"survivor"},
+        )
+        self.assertIn("survivor", found.allocations)
+
+    def test_mt5_validation_preserves_each_selected_lot(self) -> None:
+        groups = _validation_groups({"allocations": [
+            {"origin_node": "ic", "lot": 0.03, "key": "a", "set_path": "a.set"},
+            {"origin_node": "ic", "lot": 0.01, "key": "b", "set_path": "b.set"},
+            {"origin_node": "ic", "lot": 0.03, "key": "c", "set_path": "c.set"},
+        ]})
+        self.assertEqual([(node, lot, len(rows)) for node, lot, rows in groups], [
+            ("ic", 0.01, 1), ("ic", 0.03, 2),
+        ])
 
     def test_an_executable_strategy_has_no_arbitrary_unit_cap(self) -> None:
         normalized = executable_pool(

@@ -32,7 +32,7 @@
         <label>Bankroll disponible (€)<input id="bankroll_eur" type="number" min="0" step="0.01"></label>
         <label>Apalancamiento por familia<input id="account_leverage" type="text" readonly></label>
       </div>
-      <p class="history-note"><strong>Histórico completo:</strong> usa todas las fechas disponibles, desde 2020 hasta el último dato común.</p>
+      <p class="history-note"><strong>Fase 1:</strong> construye el Portafolio Prop con estrategias y lotes usando 01-01-2025 → 30-06-2026.</p>
       <div id="profile-detail" class="profile-detail"></div>
       <div class="funnel-grid">
         <section>
@@ -58,13 +58,21 @@
       </div>
       <div class="actions">
         <button id="save" class="secondary">Guardar</button>
-        <button id="run">Buscar cartera</button>
         <button id="stop" class="danger" disabled>Detener</button>
       </div>
     </section>
 
+    <section class="panel phase-panel">
+      <div class="section-title"><div><p class="eyebrow">FLUJO DEL PORTAFOLIO PROP</p><h2>Tres fases independientes</h2></div><label class="auto-next"><input id="auto_continue" type="checkbox"> Seguir automáticamente a la fase siguiente</label></div>
+      <div class="phase-grid">
+        <article data-phase-card="1"><span class="phase-number">1</span><div><h3>Construir Portafolio Prop</h3><p>Selecciona la composición y calcula el lote de cada estrategia con el tramo 2025 → junio de 2026.</p><small id="phase-one-state">Pendiente</small></div><button id="run">Ejecutar fase 1</button></article>
+        <article data-phase-card="2"><span class="phase-number">2</span><div><h3>OHLC frente a Every Tick</h3><p>Repite cada estrategia del Portafolio Prop del 20-11-2025 al 20-11-2026 y permite excluir y recomponer.</p><small id="phase-two-state">Pendiente</small></div><button id="run-phase-two" disabled>Ejecutar fase 2</button></article>
+        <article data-phase-card="3"><span class="phase-number">3</span><div><h3>Validación final 2020–2024</h3><p>Congela estrategias y lotes y recorre el histórico anterior sin volver a optimizar.</p><small id="phase-three-state">Pendiente</small></div><button id="run-phase-three" disabled>Ejecutar fase 3</button></article>
+      </div>
+    </section>
+
     <section class="panel results">
-      <div class="section-title"><h2>Resultado</h2><span id="axis"></span></div>
+      <div class="section-title"><h2>Portafolio Prop</h2><span id="axis"></span></div>
       <section id="calculation-monitor" class="calculation-monitor prop-monitor" aria-live="polite">
         <div class="monitor-head"><div><p class="eyebrow">PROGRESO DEL CÁLCULO</p><h3 id="monitor-title">Esperando una búsqueda</h3></div><span id="stage-count">0 / 5</span></div>
         <div id="stage-list" class="stage-list">
@@ -75,14 +83,24 @@
       <div id="metrics" class="metrics empty">Aún no hay un resultado.</div>
       <div id="result-contract" class="metrics contract-metrics" hidden></div>
       <div id="warnings"></div>
+      <section id="phase-two-comparison" class="phase-two-comparison" hidden>
+        <div class="comparison-head"><div><p class="eyebrow">FASE 2 · COMPARACIÓN MT5</p><h3>OHLC frente a Every Tick</h3></div><label>Estrategia<select id="phase-two-strategy"></select></label></div>
+        <div id="phase-two-metrics" class="metrics"></div>
+        <div class="comparison-curves"><article><h4>OHLC M1</h4><div id="phase-two-ohlc-chart" class="audit-analysis-chart"></div></article><article><h4>Every Tick</h4><div id="phase-two-tick-chart" class="audit-analysis-chart"></div></article></div>
+      </section>
+      <section id="phase-three-result" class="phase-three-result" hidden>
+        <div><p class="eyebrow">FASE 3 · VALIDACIÓN CONGELADA</p><h3>Resultado 2020–2024</h3><p>La composición y los lotes son exactamente los validados en la fase 2.</p></div>
+        <div id="phase-three-metrics" class="metrics"></div>
+        <div id="phase-three-chart" class="audit-analysis-chart"></div>
+      </section>
       <section id="portfolio-visual" class="portfolio-result" hidden>
         <div class="panel-title"><div><p class="eyebrow">PORTAFOLIO</p><h3>Curva combinada</h3><p class="subtitle">La misma visualización del manager, sobre el PnL diario cerrado de la composición seleccionada.</p></div></div>
         <div id="portfolio-chart" class="audit-analysis-chart" aria-label="Curva combinada del experimento prop"></div>
       </section>
       <div id="allocation-table" class="table-wrap universe-table-wrap portfolio-members-wrap" hidden><table class="universe-table portfolio-members">
-        <thead><tr><th>Origen</th><th>Tipo</th><th>Estrategia</th><th>Símbolo</th><th>TF</th><th>Unid.</th><th>Multiplicador</th><th>Net histórico</th><th>DD riesgo</th><th>Margen</th></tr></thead>
+        <thead><tr><th>Excluir</th><th>Origen</th><th>Tipo</th><th>Estrategia</th><th>Símbolo</th><th>TF</th><th>Lote</th><th>Unid.</th><th>Net histórico</th><th>DD riesgo</th><th>Margen</th></tr></thead>
         <tbody id="allocations"></tbody>
-      </table></div>
+      </table><div class="repair-bar"><span>Las exclusiones pertenecen a este Portafolio Prop; no cambian la memoria UBS del broker.</span><button id="repair-prop" class="secondary" disabled>Excluir y arreglar composición</button></div></div>
     </section>
 
     <section class="panel methodology">

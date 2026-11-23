@@ -71,7 +71,12 @@ class PropExperimentRouteTests(unittest.TestCase):
         self.assertIn("Deshabilitar en generaciones UBS y en Experimenta Prop", page)
         self.assertIn("exclusion_reason.js", page)
         self.assertNotIn("Progreso y registro</summary>", page)
-        self.assertIn("Histórico completo", page)
+        self.assertIn("Construir Portafolio Prop", page)
+        self.assertIn("OHLC frente a Every Tick", page)
+        self.assertIn("Validación final 2020–2024", page)
+        self.assertIn('id="auto_continue"', page)
+        self.assertIn('id="repair-prop"', page)
+        self.assertIn('id="phase-two-comparison"', page)
         self.assertIn('id="allocation-table"', page)
         self.assertEqual(self.request("/prop_experiment.js")[0], 200)
         status, styles = self.request("/prop_experiment.css")
@@ -91,6 +96,8 @@ class PropExperimentRouteTests(unittest.TestCase):
         })
         self.assertEqual(profile["symbol_families"], ["Forex", "Metals", "Indices"])
         self.assertEqual(config["settings"]["bankroll_eur"], 1000.0)
+        self.assertFalse(config["settings"]["auto_continue"])
+        self.assertEqual([item["id"] for item in config["phases"]], [1, 2, 3])
         self.assertNotIn("horizon_months", config["settings"])
 
     def test_vantage_is_visible_but_never_selected(self) -> None:

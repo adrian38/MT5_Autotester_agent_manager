@@ -187,6 +187,7 @@ def _eligible_additions(
 def search(
     strategies: Sequence[PropStrategy], axis: LabAxis, profile: PropProfile,
     settings: dict[str, float | int], progress: Callable[[str], None] | None = None,
+    required_keys: set[str] | None = None,
 ) -> SearchResult:
     capital = float(settings["capital"])
     kwargs = dict(
@@ -200,7 +201,18 @@ def search(
             progress(f"Evaluando estrategia {index}/{len(strategies)} · {item.lab.origin}")
     singles.sort(key=lambda pair: pair[0].score, reverse=True)
     ranked = [item for _evaluation, item in singles]
-    allocations: dict[str, int] = {}
+    required = required_keys or set()
+    allocations: dict[str, int] = {
+        item.lab.key: 1 for item in ranked if item.lab.key in required
+    }
+    missing = required - set(allocations)
+    if missing:
+        raise ValueError("Faltan estrategias obligatorias para recomponer el Portafolio Prop")
+    required_margin = sum(
+        item.lab.margin_per_unit for item in ranked if item.lab.key in allocations
+    )
+    if required_margin > capital + 1e-9:
+        raise ValueError("Las estrategias supervivientes exceden el margen de la cuenta prop")
     current = evaluate(ranked, allocations, **kwargs)
     step = 0
     while True:
@@ -213,7 +225,7 @@ def search(
             proposal[item.lab.key] = proposal.get(item.lab.key, 0) + 1
             evaluated.append((evaluate(ranked, proposal, **kwargs), item, proposal))
         best, item, proposal = max(evaluated, key=lambda row: row[0].score)
-        if step and best.score <= current.score:
+        if allocations and best.score <= current.score:
             break
         allocations, current = proposal, best
         step += 1
@@ -232,7 +244,8 @@ def _allocation_payload(item: PropStrategy, units: int) -> dict[str, object]:
         "origin_node": item.lab.origin_node, "source_kind": item.source_kind,
         "set_id": item.lab.set_id, "set_path": item.lab.set_path,
         "symbol": item.lab.symbol, "timeframe": item.lab.timeframe,
-        "units": units, "risk_multiplier": item.risk_multiplier,
+        "units": units, "lot": round(units * 0.01, 8),
+        "risk_multiplier": item.risk_multiplier,
         "net_profit_contribution": sum(item.series) * units,
         "standalone_valley_dd": item.lab.valley_dd * item.risk_multiplier * units,
         "margin_required": item.lab.margin_per_unit * item.risk_multiplier * units,

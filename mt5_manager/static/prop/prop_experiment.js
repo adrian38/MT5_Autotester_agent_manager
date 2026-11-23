@@ -1,11 +1,12 @@
 const api = "/api/prop-experiment/";
 const numeric = ["bankroll_eur"];
-const switches = ["include_candidates","include_seeds","include_manual_portfolios","active_portfolios_only"];
+const switches = ["include_candidates","include_seeds","include_manual_portfolios","active_portfolios_only","auto_continue"];
 let config = null;
 let brokerStates = new Map();
 let managedBrokerNode = "";
 let managedSymbol = "";
 let managedSymbolSets = [];
+let phaseTwoRows = [];
 
 const esc = value => String(value ?? "").replace(/[&<>'"]/g, character => ({
   "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;",
@@ -239,7 +240,49 @@ function clearResult() {
   document.querySelector("#allocation-table").hidden = true;
   document.querySelector("#allocations").innerHTML = "";
   document.querySelector("#warnings").innerHTML = "";
+  document.querySelector("#phase-two-comparison").hidden = true;
+  document.querySelector("#phase-three-result").hidden = true;
   document.querySelector("#axis").textContent = "";
+}
+
+function renderPhaseTwoStrategy(index) {
+  const row = phaseTwoRows[index];
+  if (!row) return;
+  const ohlc = row.models?.ohlc || {};
+  const tick = row.models?.tick || {};
+  document.querySelector("#phase-two-metrics").innerHTML = metric("Lote validado", number(row.lot, 2))
+    + metric("OHLC · neto", ohlc.available ? `$${number(ohlc.net)}` : "Sin informe")
+    + metric("Every Tick · neto", tick.available ? `$${number(tick.net)}` : "Sin informe")
+    + metric("Diferencia", ohlc.available && tick.available ? `$${number(tick.net - ohlc.net)}` : "No comparable");
+  window.PortfolioCurveView.renderCurve(document.querySelector("#phase-two-ohlc-chart"), ohlc.curve || []);
+  window.PortfolioCurveView.renderCurve(document.querySelector("#phase-two-tick-chart"), tick.curve || []);
+}
+
+function renderPhaseTwo(result) {
+  const checks = result?.phase_two?.checks || [];
+  phaseTwoRows = checks.flatMap(check => (check.analysis?.strategies || []).map(row => ({
+    ...row, node_id:check.node_id, lot:check.lot, check_status:check.status,
+  })));
+  const panel = document.querySelector("#phase-two-comparison");
+  panel.hidden = !phaseTwoRows.length;
+  if (!phaseTwoRows.length) return;
+  const selector = document.querySelector("#phase-two-strategy");
+  selector.innerHTML = phaseTwoRows.map((row, index) => `<option value="${index}">${esc(row.node_id)} · ${esc(row.set_name)} · ${number(row.lot, 2)} lotes</option>`).join("");
+  renderPhaseTwoStrategy(0);
+}
+
+function renderPhaseThree(result) {
+  const phase = result?.phase_three;
+  const panel = document.querySelector("#phase-three-result");
+  panel.hidden = phase?.status !== "completed";
+  if (panel.hidden) return;
+  const evaluation = phase.evaluation || {};
+  const portfolio = phase.portfolio || {};
+  document.querySelector("#phase-three-metrics").innerHTML = metric("Probabilidad histórica", `${number(evaluation.pass_rate, 1)}%`)
+    + metric("Trials aprobados", `${evaluation.passed || 0}/${evaluation.trials || 0}`)
+    + metric("Neto 2020–2024", `$${number(portfolio.net_profit)}`)
+    + metric("DD máximo cerrado", `$${number(portfolio.max_drawdown)}`);
+  window.PortfolioCurveView.renderCurve(document.querySelector("#phase-three-chart"), portfolio.curve || []);
 }
 
 function renderPortfolio(result) {
@@ -274,8 +317,35 @@ function renderResult(result) {
   document.querySelector("#axis").textContent = `${result.axis.from} → ${result.axis.to}`;
   document.querySelector("#warnings").innerHTML = (result.warnings || []).map(item => `<div class="warning">${esc(item)}</div>`).join("");
   const labels = {seed:"Seed 6M", manual:"Manual", candidate:"Candidata"};
-  document.querySelector("#allocations").innerHTML = result.allocations.map(item => `<tr><td>${esc(item.origin)}</td><td><span class="badge ${esc(item.source_kind)}">${esc(labels[item.source_kind] || item.source_kind)}</span></td><td title="${esc(item.set_path)}">${esc(item.set_id)}</td><td><strong>${esc(item.symbol)}</strong></td><td>${esc(item.timeframe || "—")}</td><td>${esc(item.units)}</td><td>${number(item.risk_multiplier, 3)}×</td><td>${number(item.net_profit_contribution)}</td><td>${number(item.standalone_valley_dd)}</td><td>${number(item.margin_required)}</td></tr>`).join("");
+  const excluded = new Set(result.excluded_keys || []);
+  document.querySelector("#allocations").innerHTML = result.allocations.map(item => `<tr><td><input type="checkbox" data-prop-exclude="${esc(item.key)}" ${excluded.has(item.key) ? "checked disabled" : ""} aria-label="Excluir ${esc(item.set_id)}"></td><td>${esc(item.origin)}</td><td><span class="badge ${esc(item.source_kind)}">${esc(labels[item.source_kind] || item.source_kind)}</span></td><td title="${esc(item.set_path)}">${esc(item.set_id)}</td><td><strong>${esc(item.symbol)}</strong></td><td>${esc(item.timeframe || "—")}</td><td><strong>${number(item.lot, 2)}</strong></td><td>${esc(item.units)}</td><td>${number(item.net_profit_contribution)}</td><td>${number(item.standalone_valley_dd)}</td><td>${number(item.margin_required)}</td></tr>`).join("");
+  syncRepairButton();
   renderPortfolio(result);
+  renderPhaseTwo(result);
+  renderPhaseThree(result);
+}
+
+function phaseStatus(phase) {
+  const labels = {completed:"Completada", repaired:"Completada · composición reparada", running:"En curso", failed:"Fallida", pending:"Pendiente"};
+  return labels[phase?.status] || "Pendiente";
+}
+
+function renderPhases(result, job) {
+  const running = job.status === "running";
+  const phaseOne = result?.phase_one;
+  const phaseTwo = result?.phase_two;
+  const phaseThree = result?.phase_three;
+  document.querySelector("#phase-one-state").textContent = phaseStatus(phaseOne);
+  document.querySelector("#phase-two-state").textContent = phaseStatus(phaseTwo);
+  document.querySelector("#phase-three-state").textContent = phaseStatus(phaseThree);
+  document.querySelector("#run").disabled = running;
+  document.querySelector("#run-phase-two").disabled = running || phaseOne?.status !== "completed";
+  document.querySelector("#run-phase-three").disabled = running || !["completed", "repaired"].includes(phaseTwo?.status);
+}
+
+function syncRepairButton() {
+  const selected = document.querySelectorAll("[data-prop-exclude]:checked:not(:disabled)").length;
+  document.querySelector("#repair-prop").disabled = !selected;
 }
 
 function monitorStage(job) {
@@ -306,9 +376,9 @@ function renderMonitor(job, lines) {
 function renderState(state) {
   const running = state.job.status === "running";
   document.querySelector("#status").textContent = state.job.error || state.job.progress || state.job.status;
-  document.querySelector("#run").disabled = running;
   document.querySelector("#stop").disabled = !running;
   renderResult(state.result);
+  renderPhases(state.result, state.job);
   renderMonitor(state.job);
 }
 
@@ -337,6 +407,14 @@ document.querySelector("#reload").addEventListener("click", () => {
 });
 document.querySelector("#save").addEventListener("click", () => post("settings", formSettings()));
 document.querySelector("#run").addEventListener("click", () => post("run", formSettings()));
+document.querySelector("#run-phase-two").addEventListener("click", () => post("validate-mt5"));
+document.querySelector("#run-phase-three").addEventListener("click", () => post("validate-history"));
+document.querySelector("#repair-prop").addEventListener("click", () => {
+  const excluded_keys = [...document.querySelectorAll("[data-prop-exclude]:checked:not(:disabled)")].map(item => item.dataset.propExclude);
+  post("repair", {excluded_keys});
+});
+document.querySelector("#allocations").addEventListener("change", syncRepairButton);
+document.querySelector("#phase-two-strategy").addEventListener("change", event => renderPhaseTwoStrategy(Number(event.target.value)));
 document.querySelector("#stop").addEventListener("click", () => post("stop"));
 document.querySelector("#broker-symbol-controls").addEventListener("click", event => {
   const manage = event.target.closest("[data-manage-broker-symbol]");

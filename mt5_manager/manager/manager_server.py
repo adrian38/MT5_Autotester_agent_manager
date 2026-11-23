@@ -5,7 +5,6 @@ la auditoria en vivo **vigila siempre y lanza solo si el interruptor esta
 puesto**: ver el comentario de `_start_live_audit_scheduler`.
 """
 from __future__ import annotations
-
 import json
 import os
 import sqlite3
@@ -21,7 +20,7 @@ from ..live_account import (
     live_account_wealth_watch,
 )
 from ..live_audit import live_audit_schedule, live_audit_watch
-from . import manager_tls
+from . import manager_http, manager_tls
 from ..web_push import web_push
 from ..manual_check import manual_check_watch
 from ..monthly_summary import monthly_summary_runtime
@@ -339,6 +338,8 @@ class ManagerServer(ThreadingHTTPServer):
             self.experiments.readonly_source,
             self.portfolios.active_portfolio_members,
             lambda node_id: self.portfolios.settings_for(node_id, "full_history"),
+            lambda node_id, method, path, payload: manager_http.node_request(
+                next(node for node in self.nodes if str(node.get("id")) == node_id), method, path, payload, timeout=120),
         )
 
     def _configure_restart(self, config: dict[str, Any]) -> None:

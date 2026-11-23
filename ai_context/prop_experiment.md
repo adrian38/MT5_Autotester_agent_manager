@@ -81,6 +81,30 @@ Los endpoints viven bajo `/api/prop-experiment/` (`config`, `state`, `log`,
 y tres estáticos son ficheros nuevos; los únicos contactos con el manager son
 el registro del coordinador, dos delegaciones HTTP y el enlace de cabecera.
 
+## Portafolio Prop y flujo en tres fases (2026-11-23)
+
+La primera fase ya no se llama sólo «búsqueda»: su salida persistente es un
+**Portafolio Prop**, con composición, broker de origen y lote por estrategia.
+Las curvas del pool están normalizadas a 0,01 lotes, por lo que el lote guardado
+es `unidades * 0,01`. La selección usa exclusivamente 2025-01-01 → 2026-06-30.
+
+La fase 2 congela esa composición y ejecuta en el agente los dos modelos de la
+comprobación manual existente —OHLC M1 y Every Tick— entre 2025-11-20 y
+2026-11-20. El runtime sólo admite un lote común por trabajo, así que el manager
+agrupa por broker y lote; no se añadió ni se portó criterio al fork del nodo.
+Cada estrategia conserva las dos curvas para compararlas en la misma pantalla.
+
+La exclusión de esta pantalla es local al Portafolio Prop: no escribe la
+cuarentena UBS. Al arreglar, las supervivientes son obligatorias, sus lotes se
+reconstruyen desde la unidad mínima y el buscador puede incorporar sustitutas.
+La composición reparada vuelve a dejar la fase 2 pendiente: no puede saltar a
+2020–2024 sin validar también las sustituciones en OHLC y Every Tick.
+
+La fase 3 usa 2020-01-01 → 2024-12-31 y no optimiza: evalúa exactamente las
+estrategias y unidades de la revisión que terminó la fase 2. Cada fase tiene su
+botón manual. `auto_continue` encadena 1→2→3 y se detiene antes de la tercera si
+alguna comprobación MT5 acabó fallida.
+
 ## Plan de validación prop v1
 
 Los dos documentos «Hello traders» aportan experiencias e hipótesis, no
