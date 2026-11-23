@@ -111,6 +111,10 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   `os.startfile` en el proceso del manager, y el histórico OHLC que leen
   «Detalle / estrategia» y «Detalle / portafolio» —qué informes son, por qué no
   vale el tramo continuo y cómo se cuentan el mensual y los valles—.
+- `set_file_name_is_not_an_identity.md`: dos runs reutilizan el nombre entero
+  de un `.set` para estrategias con otros parámetros, así que comparar por
+  nombre pierde sets que nadie excluyó; y por qué la tarjeta del pool prop
+  tiene que descartar los grids igual que el pool ejecutable.
 - `portfolio_cross_broker_correlation.md`: `/correlation.html`, la comparación de
   correlación entre portafolios guardados de distintos brokers.
 - `portfolio_import.md`: reimportar un portafolio exportado meses después, con
