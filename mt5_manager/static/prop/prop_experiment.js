@@ -76,6 +76,7 @@ function formSettings() {
   const result = {
     profile_id:document.querySelector("#profile_id").value,
     capital:Number(document.querySelector("#capital").value),
+    engine_version:document.querySelector("#engine_version").value,
     symbol_families:checkedFamilies(), source_nodes,
   };
   numeric.forEach(id => result[id] = Number(document.querySelector(`#${id}`).value));
@@ -105,8 +106,16 @@ function renderProfileContract(capital, selectedFamilies) {
   profileDetail();
 }
 
+function syncPoolRefresh() {
+  const refresh = document.querySelector("#refresh_pool");
+  refresh.disabled = document.querySelector("#engine_version").value !== "v2";
+  if (refresh.disabled) refresh.checked = false;
+}
+
 function fillForm(settings) {
   document.querySelector("#profile_id").value = settings.profile_id;
+  document.querySelector("#engine_version").value = settings.engine_version || "v1";
+  syncPoolRefresh();
   numeric.forEach(id => document.querySelector(`#${id}`).value = settings[id]);
   switches.forEach(id => document.querySelector(`#${id}`).checked = settings[id]);
   document.querySelectorAll("#nodes input").forEach(item => item.checked = settings.source_nodes.includes(item.value));
@@ -462,7 +471,8 @@ function renderResult(result) {
     + metric("Mediana para aprobar", evaluation.median_days ? `${number(evaluation.median_days, 1)} días naturales` : "—")
     + metric("Tasa de aprobación simulada", `${number(evaluation.pass_rate, 1)}%`)
     + metric("Pool", `${result.pool.candidates} generadas aceptadas FT6M + ${result.pool.seeds} seeds UBS aceptadas FT6M + ${result.pool.manual || 0} manuales sin fases`);
-  document.querySelector("#axis").textContent = `${result.axis.from} → ${result.axis.to}`;
+  const engine = (result.settings?.engine_version || "v1").toUpperCase();
+  document.querySelector("#axis").textContent = `${engine} · ${result.axis.from} → ${result.axis.to}`;
   document.querySelector("#warnings").innerHTML = (result.warnings || []).map(item => `<div class="warning">${esc(item)}</div>`).join("");
   renderPortfolioContract(result);
   renderPoolOutcome(result);
@@ -544,11 +554,16 @@ async function post(action, body={}) {
       fillForm(payload.settings);
       loadPoolInventory();
     } else renderState(payload);
-  } catch (error) { document.querySelector("#status").textContent = error.message; }
+    return true;
+  } catch (error) {
+    document.querySelector("#status").textContent = error.message;
+    return false;
+  }
 }
 
 window.PropComposition.init({esc, number, request, renderState, toast});
 document.querySelector("#profile_id").addEventListener("change", () => renderProfileContract(document.querySelector("#capital").value, checkedFamilies()));
+document.querySelector("#engine_version").addEventListener("change", syncPoolRefresh);
 for (const selector of ["#symbol-families", "#nodes", "#include_grids", "#active_portfolios_only"]) {
   document.querySelector(selector).addEventListener("change", () => {
     clearTimeout(inventoryRefresh);
@@ -561,7 +576,10 @@ document.querySelector("#reload").addEventListener("click", () => {
   window.PropComposition.refreshArchive();
 });
 document.querySelector("#save").addEventListener("click", () => post("settings", formSettings()));
-document.querySelector("#run").addEventListener("click", () => post("run", formSettings()));
+document.querySelector("#run").addEventListener("click", async () => {
+  const refresh = document.querySelector("#refresh_pool");
+  if (await post("run", {...formSettings(), refresh_pool:refresh.checked})) refresh.checked = false;
+});
 document.querySelector("#run-phase-two").addEventListener("click", () => post("validate-mt5"));
 document.querySelector("#run-phase-three").addEventListener("click", () => post("validate-history"));
 document.querySelector("#phase-two-strategy").addEventListener("change", event => renderPhaseTwoStrategy(Number(event.target.value)));

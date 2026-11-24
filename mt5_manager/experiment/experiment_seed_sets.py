@@ -10,10 +10,11 @@ milagro y revienta con el primer import que se añada en el otro sentido.
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Collection
 
-from portfolio_manager.ubs_portfolio import RobustStrategySet
+from portfolio_manager.ubs_portfolio import PeriodReport, RobustStrategySet
 from portfolio_manager.ubs_portfolio.reports import period_report_from_strategy_report
 
 from ..portfolio.portfolio_identity import _resolve_source_path
@@ -77,7 +78,11 @@ def single_report_strategy(
     report: Any, row: dict[str, Any], set_path: str, set_id: str, status: str,
     *, report_path: str,
 ) -> RobustStrategySet:
-    period = period_report_from_strategy_report(report, "seed" if status == "seed_accepted" else "OHLC")
+    period_name = "seed" if status == "seed_accepted" else "OHLC"
+    if isinstance(report, PeriodReport):
+        period = replace(report, period_name=period_name)
+    else:
+        period = period_report_from_strategy_report(report, period_name)
     return RobustStrategySet(
         set_id=set_id,
         candidate_id=str(row.get("candidate_id") or set_id),

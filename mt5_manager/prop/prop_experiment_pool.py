@@ -85,7 +85,7 @@ def _ohlc_segment(settings):
     return 'is_report_path' if settings.get('historical') else 'oos_report_path'
 
 
-def _read_ohlc_sets(rows, path_key, source_label, warnings, checkpoint):
+def _read_ohlc_sets(rows, path_key, source_label, warnings, checkpoint, parse=None):
     """Use the requested OHLC pass directly, without validating an unrelated window."""
     loaded = []
     errors = []
@@ -97,7 +97,7 @@ def _read_ohlc_sets(rows, path_key, source_label, warnings, checkpoint):
             set_path = str(row.get('set_path') or '')
             if not path or not set_path or not Path(path).is_file():
                 raise ValueError('falta el informe OHLC del tramo')
-            report = _ohlc_report(Path(path))
+            report = (parse or _ohlc_report)(Path(path))
             symbol = _row_symbol(row)
             if symbol and portfolio_symbol_key(symbol) != portfolio_symbol_key(report.symbol):
                 raise ValueError(f'símbolo OHLC {report.symbol} distinto de {symbol}')
@@ -127,7 +127,7 @@ def _allowed_names(
 
 def _candidate_sets(
     source: Any, settings: dict[str, Any], allowed: set[str] | None,
-    warnings: list[str], checkpoint: Callable[[str], None],
+    warnings: list[str], checkpoint: Callable[[str], None], parse=None,
 ) -> tuple[list[Any], int, int]:
     if not settings["include_candidates"]:
         return [], 0, 0
@@ -137,19 +137,19 @@ def _candidate_sets(
     total = len(rows)
     rows = [row for row in rows if _row_family_allowed(row, settings) and not _symbol_exception(row)]
     checkpoint(f"{source.broker}: cargando {len(rows)} candidatas de {total}")
-    loaded = _read_ohlc_sets(rows, _ohlc_segment(settings), f'{source.broker} · candidatas', warnings, checkpoint)
+    loaded = _read_ohlc_sets(rows, _ohlc_segment(settings), f'{source.broker} · candidatas', warnings, checkpoint, parse)
     return loaded, total, len(rows)
 
 
 def _seed_sets(
     source: Any, settings: dict[str, Any], allowed: set[str] | None,
-    warnings: list[str], checkpoint: Callable[[str], None],
+    warnings: list[str], checkpoint: Callable[[str], None], parse=None,
 ) -> tuple[list[Any], int]:
     if not settings["include_seeds"]:
         return [], 0
     checkpoint(f"{source.broker}: leyendo seeds con Final Tick 6M aceptado")
     loaded, notes, total = load_seed_sets(
-        source, parse=_ohlc_report, limit=0,
+        source, parse=parse or _ohlc_report, limit=0,
         require_final_tick_6m=True, allowed_set_names=allowed,
         include_row=lambda row: not _symbol_exception(row),
     )
@@ -175,14 +175,14 @@ def _manual_member_rows(source: Any, allowed: set[str] | None) -> list[dict[str,
 
 def _manual_sets(
     source: Any, settings: dict[str, Any], allowed: set[str] | None,
-    warnings: list[str], checkpoint: Callable[[str], None],
+    warnings: list[str], checkpoint: Callable[[str], None], parse=None,
 ) -> tuple[list[Any], int]:
     if not settings["include_manual_portfolios"]:
         return [], 0
     rows = _manual_member_rows(source, allowed)
     eligible = [row for row in rows if not _symbol_exception(row)]
     checkpoint(f"{source.broker}: cargando {len(eligible)} estrategias de portafolios manuales")
-    loaded = _read_ohlc_sets(eligible, _ohlc_segment(settings), f'{source.broker} · manuales', warnings, checkpoint)
+    loaded = _read_ohlc_sets(eligible, _ohlc_segment(settings), f'{source.broker} · manuales', warnings, checkpoint, parse)
     return loaded, len(rows)
 
 
@@ -191,7 +191,7 @@ def _fx_reference_pairs(currencies):
             for pair in (currency + reference, reference + currency)}
 
 
-def load_fx_reference(source_factory, settings, checkpoint, currencies, *, preceding=()):
+def load_fx_reference(source_factory, settings, checkpoint, currencies, *, preceding=(), parse=None):
     """Read OHLC observations for the missing direct or bridged EUR rates."""
     references = []
     pairs = _fx_reference_pairs(currencies)
@@ -208,10 +208,10 @@ def load_fx_reference(source_factory, settings, checkpoint, currencies, *, prece
             if symbol in selected and len(selected[symbol]) < 12:
                 selected[symbol].append(row)
         read = _read_ohlc_sets([row for pair in pairs for row in selected[pair]], _ohlc_segment(settings),
-                              f'{source.broker} · cotizaciones FX', [], checkpoint)
+                              f'{source.broker} · cotizaciones FX', [], checkpoint, parse)
         earlier_rows = [row for pair in earlier_pairs for row in selected[pair][:4] if row.get('is_report_path')]
         read.extend(_read_ohlc_sets(earlier_rows, 'is_report_path',
-                                   f'{source.broker} · cotizaciones FX anteriores', [], checkpoint))
+                                   f'{source.broker} · cotizaciones FX anteriores', [], checkpoint, parse))
         references.extend(trade for item in read for trade in item.closed_trades_2020_2026)
     return references
 
@@ -334,13 +334,13 @@ def load_inventory(
 
 def load_origin(
     source: Any, node_id: str, settings: dict[str, Any], warnings: list[str],
-    checkpoint: Callable[[str], None], allowed: set[str] | None,
+    checkpoint: Callable[[str], None], allowed: set[str] | None, parse=None,
 ) -> tuple[list[tuple[Any, str, str]], set[str], set[str], dict[str, Any]]:
     candidates, candidate_total, candidate_read = _candidate_sets(
-        source, settings, allowed, warnings, checkpoint,
+        source, settings, allowed, warnings, checkpoint, parse,
     )
-    seeds, seed_total = _seed_sets(source, settings, allowed, warnings, checkpoint)
-    manual, manual_total = _manual_sets(source, settings, allowed, warnings, checkpoint)
+    seeds, seed_total = _seed_sets(source, settings, allowed, warnings, checkpoint, parse)
+    manual, manual_total = _manual_sets(source, settings, allowed, warnings, checkpoint, parse)
     unfiltered = len(candidates) + len(seeds) + len(manual)
     quarantined = _quarantine_keys(source)
     candidates = _without_quarantine(candidates, source, quarantined)
@@ -385,6 +385,7 @@ def load_pool(
     checkpoint: Callable[[str], None],
     active_members_factory: Callable[[str, Any], list[dict[str, Any]]] | None = None,
     symbol_settings_factory: Callable[[str], dict[str, Any]] | None = None,
+    *, parse=None,
 ) -> tuple[list[PropStrategy], lab.LabAxis, list[str], dict[str, Any]]:
     loaded: list[tuple[RobustStrategySet, str, str]] = []
     seed_ids: set[str] = set()
@@ -407,7 +408,7 @@ def load_pool(
                 )
             allowed = _allowed_names(origin_settings, node_id, source, active_members_factory)
             items, ids, manual, meta = load_origin(
-                source, node_id, origin_settings, warnings, checkpoint, allowed,
+                source, node_id, origin_settings, warnings, checkpoint, allowed, parse,
             )
             volume_specs[node_id] = _source_specs(source)
             loaded.extend(items)

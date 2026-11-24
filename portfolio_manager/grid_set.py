@@ -21,13 +21,19 @@ def _row_set_path(row: object) -> str:
     return str(getattr(row, "set_path", "") or "")
 
 
-def set_file_grid_enabled_value(set_path: str | Path) -> bool | None:
+def set_file_grid_enabled_value(set_path: str | Path, *, fresh: bool = False) -> bool | None:
     """Read ``EnableGrid``; return ``None`` when absent or unreadable."""
+    if fresh:
+        return _read_grid_enabled_value(str(set_path))
     return _set_file_grid_enabled_value_cached(str(set_path))
 
 
 @lru_cache(maxsize=32_768)
 def _set_file_grid_enabled_value_cached(set_path: str) -> bool | None:
+    return _read_grid_enabled_value(set_path)
+
+
+def _read_grid_enabled_value(set_path: str) -> bool | None:
     path = resolve_workspace_path(set_path)
     if not path.is_file():
         return None
@@ -55,9 +61,9 @@ def _set_file_grid_enabled_value_cached(set_path: str) -> bool | None:
     return None
 
 
-def set_file_has_enabled_grid(set_path: str | Path) -> bool:
+def set_file_has_enabled_grid(set_path: str | Path, *, fresh: bool = False) -> bool:
     """Return ``True`` only for an explicit ``EnableGrid=true``."""
-    return set_file_grid_enabled_value(set_path) is True
+    return set_file_grid_enabled_value(set_path, fresh=fresh) is True
 
 
 def _grid_flags(rows: Sequence[object]) -> tuple[list[str], dict[str, bool | None]]:

@@ -5,25 +5,25 @@ from __future__ import annotations
 import threading
 import time
 from collections import Counter, deque
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
 from ..common import load_json, safe_float, save_json, utc_now
 from .prop_compositions import PropCompositionArchive, composition_snapshot
-from .prop_experiment_engine import (
-    SearchResult, credible_pool, evaluate, result_payload, search,
-)
+from .prop_execution import SYMBOL_CONTRACT_UNAVAILABLE
+from .prop_experiment_cache import PropEvidenceCache
+from .prop_experiment_engine import SearchResult, evaluate, result_payload, search
+from .prop_experiment_engine_v2 import search_v2
+from .prop_experiment_inputs import load_executable
 from .prop_experiment_periods import (
     PHASE_ONE_FIRST_DAY, PHASE_ONE_FROM, PHASE_ONE_LAST_DAY, PHASE_ONE_TO,
     PHASE_THREE_FROM, PHASE_THREE_TO,
     PHASE_TWO_FROM, PHASE_TWO_TO, replay_window,
 )
-from .prop_experiment_pool import load_fx_reference, load_inventory, load_pool
+from .prop_experiment_pool import load_inventory
 from .prop_experiment_reporting import attempt_analysis
 from .prop_profiles import EXPERIMENT_PROFILE_IDS, profile, profiles_payload
 from .prop_experiment_validation import NodeRequest, validate_portfolio
-from .prop_execution import SYMBOL_CONTRACT_UNAVAILABLE, ObservedEuroRates
 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -32,7 +32,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "symbol_families": ["Forex", "Metals", "Indices"],
     "source_nodes": [], "include_candidates": True, "include_seeds": True,
     "include_manual_portfolios": True, "active_portfolios_only": False,
-    "include_grids": False, "auto_continue": False,
+    "include_grids": False, "auto_continue": False, "engine_version": "v1",
 }
 RESULT_SCHEMA_VERSION = 11
 
@@ -82,6 +82,11 @@ def normalize_settings(raw: dict[str, Any], *, migrate: bool = False) -> dict[st
     if unknown:
         raise ValueError(f"Campos desconocidos: {', '.join(sorted(unknown))}")
     value = {**DEFAULT_SETTINGS, **raw}
+    engine = value["engine_version"]
+    if engine not in ("v1", "v2"):
+        if not migrate:
+            raise ValueError("Selecciona el motor V1 o V2")
+        engine = DEFAULT_SETTINGS["engine_version"]
     profile_id, capital, families = _profile_choices(value, migrate)
     evaluation_fee = safe_float(value["evaluation_fee_eur"], 52.0)
     if migrate and evaluation_fee == 260.0:
@@ -99,6 +104,7 @@ def normalize_settings(raw: dict[str, Any], *, migrate: bool = False) -> dict[st
         "active_portfolios_only": bool(value["active_portfolios_only"]),
         "include_grids": bool(value["include_grids"]),
         "auto_continue": bool(value["auto_continue"]),
+        "engine_version": engine,
     }
 
 
@@ -271,17 +277,21 @@ class PropExperimentCoordinator:
 
     def start(self, changes: dict[str, Any]) -> dict[str, Any]:
         """Fase 1: construye un Portafolio Prop con composición y lotes."""
-        settings = self.update_settings(changes)
-        if not settings["source_nodes"]:
-            raise ValueError("Elige al menos un broker distinto de Vantage")
+        changes = dict(changes or {})
+        refresh = changes.pop("refresh_pool", False)
+        if not isinstance(refresh, bool):
+            raise ValueError("Actualizar sets e informes espera una casilla booleana")
         with self.lock:
             if self.job.get("status") == "running":
                 raise ValueError("Ya hay un experimento prop en curso")
+            if refresh and changes.get("engine_version", self.settings()["engine_version"]) != "v2":
+                raise ValueError("Actualizar sets e informes requiere el motor V2")
+            settings = self.update_settings(changes)
+            if not settings["source_nodes"]:
+                raise ValueError("Elige al menos un broker distinto de Vantage")
             self.cancel = threading.Event()
             self.log_lines.clear()
-            incumbent = None
-            if self.result and self.result.get("settings") == settings:
-                _keys, incumbent = self._current_keys_and_units()
+            incumbent = self._incumbent(settings)
             self.result = None
             self.job = {
                 "status": "running", "started_at": utc_now(), "finished_at": None,
@@ -289,9 +299,17 @@ class PropExperimentCoordinator:
                 "settings": settings, "phase": 1, "operation": "build",
             }
         threading.Thread(
-            target=self._worker, args=("build", settings, {"incumbent": incumbent}), daemon=True,
+            target=self._worker, args=("build", settings, {"incumbent": incumbent, "refresh": refresh}), daemon=True,
         ).start()
         return self.state()
+
+    def _incumbent(self, settings):
+        previous = {"engine_version": "v1", **((self.result or {}).get("settings") or {})}
+        if settings["engine_version"] == "v2":
+            previous.update(engine_version="v2", auto_continue=settings["auto_continue"])
+        if previous == settings:
+            return self._current_keys_and_units()[1]
+        return None
 
     def _start_result_operation(self, operation: str, payload: dict[str, Any]) -> dict[str, Any]:
         phase = 2 if operation in {"repair", "validate_mt5"} else 3
@@ -345,39 +363,24 @@ class PropExperimentCoordinator:
             self.job["progress"] = "Deteniendo…"
         return self.state()
 
-    def _load_executable(self, settings: dict[str, Any], *, historical=False):
+    def _load_executable(self, settings: dict[str, Any], *, historical=False, refresh=False):
         pool_settings = {**settings, 'historical': historical}
-        pool, axis, warnings, origins = load_pool(
-            pool_settings, self.source_factory, self._checkpoint, self.active_members_factory,
-            self.symbol_settings_factory,
-        )
-        if not pool or not axis.size:
-            raise ValueError("El pool no tiene días operables en la ventana elegida")
-        executable, credibility_warnings = credible_pool(
-            pool, bool(settings["include_grids"]),
-        )
-        if not executable:
-            raise ValueError("El pool no contiene estrategias con riesgo cerrado medible")
-        executable_keys = {item.lab.key for item in executable}
-        rejected = Counter((item.lab.origin_node, item.source_kind, 'Grid deshabilitado')
-                           for item in pool if item.lab.key not in executable_keys)
-        rates = ObservedEuroRates(pool)
-        required = {item.prop_contract.quote for item in executable if item.prop_contract}
-        required.update(item.prop_contract.base for item in executable
-                        if item.prop_contract and item.prop_contract.base == 'USD')
-        required.update(trade.currency for item in executable for trade in item.closed_trades if trade.currency)
-        missing = rates.missing_references(required)
-        first_day = datetime.fromisoformat(PHASE_ONE_FIRST_DAY)
-        preceding = {currency for currency in required if not rates.at(currency, first_day)} if not historical else set()
-        if missing or preceding:
-            reference = load_fx_reference(
-                self.source_factory, pool_settings, self._checkpoint, missing, preceding=preceding,
-            )
-            rates = ObservedEuroRates(pool, reference)
-        return executable, axis, warnings + credibility_warnings, origins, rates, rejected
+        args = (pool_settings, self.source_factory, self._checkpoint,
+                self.active_members_factory, self.symbol_settings_factory)
+        if settings.get("engine_version") != "v2":
+            return load_executable(*args)
+        path = self.settings_path.with_name("prop_experiment_evidence.sqlite3")
+        self._checkpoint("Actualizando sets e informes OHLC" if refresh else "Preparando sets e informes OHLC guardados")
+        with PropEvidenceCache(path, refresh=refresh) as cache:
+            loaded = load_executable(*args, cache=cache)
+        if cache.error:
+            self._checkpoint(f"Caché V2 no disponible: {cache.error}")
+        else:
+            self._checkpoint(f"Caché V2 · {cache.hits} lecturas reutilizadas · {cache.misses} archivos procesados")
+        return loaded
 
-    def _phase_one_pool(self, settings, excluded=frozenset()):
-        executable, full_axis, warnings, origins, rates, discarded = self._load_executable(settings)
+    def _phase_one_pool(self, settings, excluded=frozenset(), *, refresh=False):
+        executable, full_axis, warnings, origins, rates, discarded = self._load_executable(settings, refresh=refresh)
         executable, axis, coverage_warnings = replay_window(
             [item for item in executable if item.lab.key not in excluded], full_axis,
             PHASE_ONE_FIRST_DAY, PHASE_ONE_LAST_DAY, rates=rates, discards=discarded,
@@ -390,8 +393,8 @@ class PropExperimentCoordinator:
                 discarded[item.lab.origin_node, item.source_kind, 'lote mínimo excede el capital'] += 1
         return eligible, axis, warnings + coverage_warnings, origins, discarded
 
-    def _run_build(self, settings: dict[str, Any], incumbent: dict[str, int] | None = None) -> None:
-        executable, axis, warnings, origins, discarded = self._phase_one_pool(settings)
+    def _run_build(self, settings: dict[str, Any], incumbent: dict[str, int] | None = None, *, refresh=False) -> None:
+        executable, axis, warnings, origins, discarded = self._phase_one_pool(settings, refresh=refresh)
         pool = _pool_payload(executable, origins, discarded)
         pool_count = pool["strategies"]
         seed_count = pool["seeds"]
@@ -401,7 +404,8 @@ class PropExperimentCoordinator:
             f"({pool_count - seed_count - manual_count} generadas aceptadas FT6M, "
             f"{seed_count} seeds UBS aceptadas FT6M, {manual_count} manuales sin fases)"
         )
-        found = search(executable, axis, profile(settings["profile_id"]), settings, self._checkpoint,
+        engine = search_v2 if settings.get("engine_version") == "v2" else search
+        found = engine(executable, axis, profile(settings["profile_id"]), settings, self._checkpoint,
                        incumbent=incumbent)
         payload = result_payload(found, axis, float(settings["capital"]))
         payload["attempt_analysis"] = attempt_analysis(
@@ -431,7 +435,7 @@ class PropExperimentCoordinator:
 
     def _run_repair(self, settings: dict[str, Any], payload: dict[str, Any]) -> None:
         newly_excluded = set(payload["excluded_keys"])
-        current_keys, _old_units = self._current_keys_and_units()
+        current_keys, old_units = self._current_keys_and_units()
         unknown = newly_excluded - current_keys
         if unknown:
             raise ValueError("La exclusión contiene estrategias ajenas al Portafolio Prop")
@@ -440,9 +444,11 @@ class PropExperimentCoordinator:
         if not required:
             raise ValueError("No se pueden excluir todas las estrategias del Portafolio Prop")
         executable, axis, warnings, origins, discarded = self._phase_one_pool(settings, excluded)
-        found = search(
+        engine = search_v2 if settings.get("engine_version") == "v2" else search
+        incumbent = {key: lots for key, lots in old_units.items() if key in required} if engine is search_v2 else None
+        found = engine(
             executable, axis, profile(settings["profile_id"]), settings,
-            self._checkpoint, required_keys=required,
+            self._checkpoint, required_keys=required, incumbent=incumbent,
         )
         updated = result_payload(found, axis, float(settings["capital"]))
         updated["attempt_analysis"] = attempt_analysis(
@@ -554,7 +560,7 @@ class PropExperimentCoordinator:
     def _worker(self, operation: str, settings: dict[str, Any], payload: dict[str, Any]) -> None:
         try:
             if operation == "build":
-                self._run_build(settings, payload.get("incumbent"))
+                self._run_build(settings, payload.get("incumbent"), refresh=payload.get("refresh", False))
             elif operation == "repair":
                 self._run_repair(settings, payload)
             elif operation == "validate_mt5":

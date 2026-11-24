@@ -140,8 +140,28 @@ class PropExperimentRouteTests(unittest.TestCase):
         self.assertTrue(config["settings"]["include_manual_portfolios"])
         self.assertFalse(config["settings"]["include_grids"])
         self.assertFalse(config["settings"]["auto_continue"])
+        self.assertEqual(config["settings"]["engine_version"], "v1")
         self.assertEqual([item["id"] for item in config["phases"]], [1, 2, 3])
         self.assertNotIn("horizon_months", config["settings"])
+
+    def test_v2_refresh_is_an_instruction_for_one_run(self) -> None:
+        status, page = self.request('/prop_experiment.html')
+        self.assertEqual(status, 200)
+        self.assertIn('id="engine_version"', page)
+        self.assertIn('id="refresh_pool"', page)
+        self.assertEqual(self.request('/api/prop-experiment/settings', {'engine_version': 'v3'})[0], 400)
+        self.assertEqual(self.request('/api/prop-experiment/run', {'refresh_pool': True})[0], 400)
+        coordinator = self.manager.prop_experiments
+        dispatched = threading.Event()
+        with mock.patch.object(coordinator, '_worker', side_effect=lambda *_: dispatched.set()) as worker:
+            status, state = self.request('/api/prop-experiment/run', {'engine_version': 'v2', 'refresh_pool': True})
+            self.assertEqual(status, 200)
+            self.assertTrue(dispatched.wait(2))
+        self.assertEqual(state['job']['settings']['engine_version'], 'v2')
+        self.assertTrue(worker.call_args.args[2]['refresh'])
+        stored = json.loads(coordinator.settings_path.read_text(encoding='utf-8'))
+        self.assertEqual(stored['engine_version'], 'v2')
+        self.assertNotIn('refresh_pool', stored)
 
     def test_pool_inventory_is_available_before_phase_one(self) -> None:
         expected = {"pool": {"strategies": 3, "by_broker": []}, "warnings": [], "axis": None}

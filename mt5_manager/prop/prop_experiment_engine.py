@@ -80,7 +80,7 @@ class SearchResult:
     search_base: dict[str, Any] | None = None
 
 
-def set_path_is_grid(value: Any) -> bool:
+def set_path_is_grid(value: Any, *, fresh: bool = False) -> bool:
     """Grid por el nombre del fichero o por traer la rejilla activada.
 
     El inventario de la tarjeta y :func:`credible_pool` tienen que decidirlo
@@ -90,11 +90,7 @@ def set_path_is_grid(value: Any) -> bool:
     """
     path = Path(str(value or ""))
     name_marks_grid = "grid" in path.stem.lower().replace("-", "_").split("_")
-    return name_marks_grid or set_file_has_enabled_grid(path)
-
-
-def _is_grid_strategy(item: PropStrategy) -> bool:
-    return set_path_is_grid(item.lab.set_path)
+    return name_marks_grid or set_file_has_enabled_grid(path, fresh=fresh)
 
 
 def executable_pool(
@@ -117,12 +113,13 @@ def executable_pool(
 
 def credible_pool(
     strategies: Sequence[PropStrategy], include_grids: bool = False,
+    *, is_grid: Callable[[Any], bool] = set_path_is_grid,
 ) -> tuple[list[PropStrategy], list[str]]:
     """Aplica únicamente la decisión explícita del checkbox Grid."""
     accepted: list[PropStrategy] = []
     grid = 0
     for item in strategies:
-        if not include_grids and _is_grid_strategy(item):
+        if not include_grids and is_grid(item.lab.set_path):
             grid += 1
         else:
             accepted.append(item)
@@ -288,10 +285,11 @@ def evaluate(
     strategies: Sequence[PropStrategy], allocations: dict[str, int], axis: LabAxis,
     profile: PropProfile, capital: float, max_days: int,
     bankroll_eur: float | None = None, evaluation_fee_eur: float | None = None,
+    *, build_growth_series=growth_series,
 ) -> Evaluation:
     if profile.profile_id == "the5ers-growth":
         campaign = simulate_monthly_campaign(
-            growth_series(strategies, allocations, axis), axis.days, rules_for_capital(capital),
+            build_growth_series(strategies, allocations, axis), axis.days, rules_for_capital(capital),
             float(1000.0 if bankroll_eur is None else bankroll_eur),
             float(52.0 if evaluation_fee_eur is None else evaluation_fee_eur),
         )
@@ -335,7 +333,7 @@ def search(
     strategies: Sequence[PropStrategy], axis: LabAxis, profile: PropProfile,
     settings: dict[str, float | int], progress: Callable[[str], None] | None = None,
     required_keys: set[str] | None = None,
-    *, incumbent: dict[str, int] | None = None,
+    *, incumbent: dict[str, int] | None = None, optimizer_factory=CompositionSearch, evaluator=evaluate,
 ) -> SearchResult:
     capital = float(settings["capital"])
     kwargs = dict(
@@ -352,10 +350,10 @@ def search(
         raise ValueError("Faltan estrategias obligatorias para recomponer el Portafolio Prop")
 
     def evaluate_proposal(proposal):
-        return evaluate(tuple(by_key[key] for key in proposal), proposal, **kwargs)
+        return evaluator(tuple(by_key[key] for key in proposal), proposal, **kwargs)
 
     daily_margins = {key: item.margin_by_day for key, item in by_key.items() if item.margin_by_day}
-    optimizer = CompositionSearch(
+    optimizer = optimizer_factory(
         {key: item.lab.margin_per_unit for key, item in by_key.items()},
         capital, required, evaluate_proposal, progress,
         daily_margins=daily_margins if daily_margins.keys() == by_key.keys() else None,

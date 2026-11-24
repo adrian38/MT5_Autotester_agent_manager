@@ -32,6 +32,7 @@
         <label>Bankroll mensual (€)<input id="bankroll_eur" type="number" min="0" step="0.01"></label>
         <label>Coste por prueba (€)<input id="evaluation_fee_eur" type="number" min="0.01" step="0.01"></label>
         <label>Apalancamiento por familia<input id="account_leverage" type="text" readonly></label>
+        <label>Motor de creación<select id="engine_version"><option value="v1">V1</option><option value="v2">V2</option></select></label>
       </div>
       <p class="history-note"><strong>Fase 1</strong> · OHLC desde el 01-01-2025 hasta el 20-05-2026 inclusive. Busca el mayor número de aprobaciones consecutivas con lotes ejecutables. Si empatan, gana la menor mediana de días.</p>
       <div id="profile-detail" class="profile-detail"></div>
@@ -56,7 +57,9 @@
           <div class="source-options">
             <label><input id="include_grids" type="checkbox"> Utilizar grids <small>(experimental)</small></label>
             <label class="active-filter"><input id="active_portfolios_only" type="checkbox"> Solo estrategias presentes en portafolios activos</label>
+            <label><input id="refresh_pool" type="checkbox" aria-describedby="refresh-pool-note" disabled> Forzar actualización de sets e informes</label>
           </div>
+          <p id="refresh-pool-note" class="source-note">V2 reaprovecha los archivos procesados. Marca la casilla para volver a leerlos en la próxima ejecución.</p>
           <p class="source-note">Incluye sets generados que aprobaron Final Tick 6M, seeds UBS que aprobaron UBS Final Tick 6M y sets de portafolios manuales. Every Tick sólo admite o rechaza: la simulación usa exclusivamente el OHLC desde 2025-01-01 hasta antes de 2026-05-21.</p>
         </section>
       </div>

@@ -86,6 +86,34 @@ y continúa más allá de una ampliación que pierde contra el mejor resultado.
 El número de miembros queda fuera del ranking. El resultado guarda las
 propuestas comparadas, viables y la mejor puntuación observada para cada tamaño.
 
+### Motor V2 y reutilización de evidencia
+
+El selector conserva V1 como valor por defecto para los ajustes anteriores.
+V2 vive en `prop_experiment_engine_v2.py`. Mide lotes para todo el pool y
+refina varias composiciones con cambios de volumen, sustituciones y estrategias
+que aportan PnL en los días más débiles. Conserva como punto de partida la
+última composición comparable si aún cabe y sus miembros siguen admitidos.
+Ambos motores usan la misma campaña The5ers, con el número de aprobaciones
+por delante de la mediana de días. V2 prepara los eventos diarios cuando la
+campaña los necesita y reutiliza los eventos por estrategia y lote en la misma
+búsqueda.
+
+V2 guarda los informes OHLC normalizados y la lectura de `EnableGrid` en
+`prop_experiment_evidence.sqlite3`, junto a los ajustes del manager. Reutiliza
+cada archivo por ruta, tamaño y fecha de modificación. La casilla de
+actualización se aplica a la siguiente construcción y fuerza una lectura de
+los archivos que usa esa ejecución. Las admisiones, las cuarentenas y los
+símbolos deshabilitados se consultan cada vez. La recomposición usa la versión
+de la cartera guardada y la validación histórica de V2 reutiliza su propia
+evidencia OHLC por ruta.
+
+Medición del 2026-11-24 con informes reales de ICTrading y la ventana de fase 1.
+Al preparar 85 estrategias, V2 pasó de unos 25 a unos 3 segundos al reutilizar
+177 lecturas. En la búsqueda sobre 24 de esas estrategias y la cuenta de 5.000 €,
+V1 aprobó 32 pruebas con mediana de 9 días y V2 aprobó 33 con mediana de 10 días.
+La prueba controlada de `test_prop_experiment_v2.py` cubre un caso distinto en
+el que V2 mejora ambas medidas.
+
 El simulador exige cobertura de la ventana con las fechas declaradas de las
 pasadas que construyeron la serie. Un día laborable cubierto sin cierres
 consume tiempo y conserva el saldo. Si falta un tramo de evidencia, la
