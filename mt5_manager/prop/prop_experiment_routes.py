@@ -10,7 +10,7 @@ from ..common import safe_int
 from ..static_files import STATIC_DIR, static_path  # noqa: F401  (STATIC_DIR es API)
 
 
-STATIC_FILES = {"prop_experiment.html", "prop_experiment.css", "prop_experiment.js"}
+STATIC_FILES = {"prop_experiment.html", "prop_experiment.css", "prop_experiment.js", "prop_search_base.js"}
 API_PREFIX = "/api/prop-experiment/"
 
 
