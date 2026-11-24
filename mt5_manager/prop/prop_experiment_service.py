@@ -284,8 +284,6 @@ class PropExperimentCoordinator:
         with self.lock:
             if self.job.get("status") == "running":
                 raise ValueError("Ya hay un experimento prop en curso")
-            if refresh and changes.get("engine_version", self.settings()["engine_version"]) != "v2":
-                raise ValueError("Actualizar sets e informes requiere el motor V2")
             settings = self.update_settings(changes)
             if not settings["source_nodes"]:
                 raise ValueError("Elige al menos un broker distinto de Vantage")
@@ -367,16 +365,15 @@ class PropExperimentCoordinator:
         pool_settings = {**settings, 'historical': historical}
         args = (pool_settings, self.source_factory, self._checkpoint,
                 self.active_members_factory, self.symbol_settings_factory)
-        if settings.get("engine_version") != "v2":
-            return load_executable(*args)
+        # V1 y V2 leen los mismos sets e informes: los dos reutilizan lo ya procesado.
         path = self.settings_path.with_name("prop_experiment_evidence.sqlite3")
         self._checkpoint("Actualizando sets e informes OHLC" if refresh else "Preparando sets e informes OHLC guardados")
         with PropEvidenceCache(path, refresh=refresh) as cache:
             loaded = load_executable(*args, cache=cache)
         if cache.error:
-            self._checkpoint(f"Caché V2 no disponible: {cache.error}")
+            self._checkpoint(f"Caché de sets e informes no disponible: {cache.error}")
         else:
-            self._checkpoint(f"Caché V2 · {cache.hits} lecturas reutilizadas · {cache.misses} archivos procesados")
+            self._checkpoint(f"Caché de sets e informes · {cache.hits} lecturas reutilizadas · {cache.misses} archivos procesados")
         return loaded
 
     def _phase_one_pool(self, settings, excluded=frozenset(), *, refresh=False):

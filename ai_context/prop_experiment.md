@@ -103,14 +103,17 @@ por delante de la mediana de días. V2 prepara los eventos diarios cuando la
 campaña los necesita y reutiliza los eventos por estrategia y lote en la misma
 búsqueda.
 
-V2 guarda los informes OHLC normalizados y la lectura de `EnableGrid` en
-`prop_experiment_evidence.sqlite3`, junto a los ajustes del manager. Reutiliza
-cada archivo por ruta, tamaño y fecha de modificación. La casilla de
-actualización se aplica a la siguiente construcción y fuerza una lectura de
-los archivos que usa esa ejecución. Las admisiones, las cuarentenas y los
+La caché de sets e informes es de los dos motores, porque los dos se nutren de
+los mismos archivos: guarda los informes OHLC normalizados y la lectura de
+`EnableGrid` en `prop_experiment_evidence.sqlite3`, junto a los ajustes del
+manager. Reutiliza cada archivo por ruta, tamaño y fecha de modificación. La
+casilla de actualización vale para V1 y V2, se aplica a la siguiente
+construcción y fuerza una lectura de los archivos que usa esa ejecución. Hasta
+el 2026-11-25 la caché y la casilla eran sólo de V2, y con V1 guardado la
+casilla salía gris y parecía rota. Las admisiones, las cuarentenas y los
 símbolos deshabilitados se consultan cada vez. La recomposición usa la versión
-de la cartera guardada y la validación histórica de V2 reutiliza su propia
-evidencia OHLC por ruta.
+de la cartera guardada y la validación histórica reutiliza su propia evidencia
+OHLC por ruta.
 
 Medición del 2026-11-24 con informes reales de ICTrading y la ventana de fase 1.
 Al preparar 85 estrategias, V2 pasó de unos 25 a unos 3 segundos al reutilizar

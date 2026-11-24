@@ -106,22 +106,9 @@ function renderProfileContract(capital, selectedFamilies) {
   profileDetail();
 }
 
-function syncPoolRefresh() {
-  const refresh = document.querySelector("#refresh_pool");
-  refresh.disabled = document.querySelector("#engine_version").value !== "v2";
-  if (refresh.disabled) refresh.checked = false;
-  // A greyed box with no reason reads as broken: say which engine enables it.
-  const note = refresh.disabled
-    ? "Sólo con el motor V2. V1 vuelve a leer sets e informes en cada ejecución; elige V2 en «Motor de creación» para usar la casilla."
-    : "V2 reaprovecha los archivos procesados. Marca la casilla para volver a leerlos en la próxima ejecución.";
-  document.querySelector("#refresh-pool-note").textContent = note;
-  refresh.closest("label").title = note;
-}
-
 function fillForm(settings) {
   document.querySelector("#profile_id").value = settings.profile_id;
   document.querySelector("#engine_version").value = settings.engine_version || "v1";
-  syncPoolRefresh();
   numeric.forEach(id => document.querySelector(`#${id}`).value = settings[id]);
   switches.forEach(id => document.querySelector(`#${id}`).checked = settings[id]);
   document.querySelectorAll("#nodes input").forEach(item => item.checked = settings.source_nodes.includes(item.value));
@@ -569,7 +556,6 @@ async function post(action, body={}) {
 
 window.PropComposition.init({esc, number, request, renderState, toast});
 document.querySelector("#profile_id").addEventListener("change", () => renderProfileContract(document.querySelector("#capital").value, checkedFamilies()));
-document.querySelector("#engine_version").addEventListener("change", syncPoolRefresh);
 for (const selector of ["#symbol-families", "#nodes", "#include_grids", "#active_portfolios_only"]) {
   document.querySelector(selector).addEventListener("change", () => {
     clearTimeout(inventoryRefresh);
