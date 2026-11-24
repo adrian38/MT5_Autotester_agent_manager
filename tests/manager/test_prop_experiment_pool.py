@@ -88,7 +88,50 @@ class PropExperimentPoolTests(unittest.TestCase):
         self.assertEqual(result["by_broker"][0], {
             "node_id": "ic", "broker": "TEST", "candidates": 1,
             "seeds": 1, "manual": 1, "total": 3,
+            "symbol_exceptions": [], "symbol_exception_total": 0,
         })
+
+    def test_symbol_exception_totals_follow_family_and_source_filters(self) -> None:
+        source = _Source()
+        source.candidate_rows = lambda **_kwargs: [
+            {"set_path": "C:/sets/a.set", "target_symbol": "EURHKD"},
+            {"set_path": "C:/sets/SE30_grid.set", "target_symbol": "SE30"},
+            {"set_path": "C:/sets/b.set", "target_symbol": "XAUEUR"},
+            {"set_path": "C:/sets/c.set", "target_symbol": "XAUUSD"},
+        ]
+        seeds = [{"seed_path": "C:/sets/robust_202601_a.set", "symbol": "EURHKD"}]
+        manual = [{"set_path": "C:/sets/other.set", "symbol": "XAUEUR"}]
+        settings = {"source_nodes": ["ic"], "symbol_families": ["Forex", "Metals"],
+                    "active_portfolios_only": False}
+        with (
+            mock.patch.object(pool, "accepted_seed_rows", return_value=seeds),
+            mock.patch.object(pool, "_manual_member_rows", return_value=manual),
+        ):
+            result = pool.load_inventory(settings, lambda _: source)
+            forex = pool.load_inventory({**settings, "symbol_families": ["Forex"]}, lambda _: source)
+        row = result["by_broker"][0]
+        self.assertEqual((result["strategies"], result["symbol_exception_total"], row["symbol_exception_total"]), (1, 3, 3))
+        self.assertEqual([(item["family"], item["symbol"], item["total"]) for item in row["symbol_exceptions"]],
+                         [("Forex", "EURHKD", 1), ("Metals", "XAUEUR", 2)])
+        self.assertEqual((forex["strategies"], forex["symbol_exception_total"]), (0, 1))
+
+    def test_symbol_exceptions_do_not_open_candidate_seed_or_manual_reports(self) -> None:
+        source = _Source()
+        unsupported = {"seed_path": "a.set", "set_path": "a.set", "symbol": "EURHKD"}
+        supported = {"seed_path": "b.set", "set_path": "b.set", "symbol": "EURUSD"}
+        source.candidate_rows = lambda **_kwargs: [unsupported, supported]
+        settings = {"include_candidates": True, "include_seeds": True, "include_manual_portfolios": True}
+        with (
+            mock.patch.object(pool, "_manual_member_rows", return_value=[unsupported, supported]),
+            mock.patch.object(pool, "_read_ohlc_sets", return_value=[]) as read,
+            mock.patch("mt5_manager.experiment.experiment_seed_sets.accepted_seed_rows", return_value=[unsupported, supported]),
+            mock.patch("mt5_manager.experiment.experiment_seed_sets._seed_strategy", return_value=SimpleNamespace(symbol="EURUSD")) as seed,
+        ):
+            pool._candidate_sets(source, settings, None, [], lambda _: None)
+            pool._manual_sets(source, settings, None, [], lambda _: None)
+            pool._seed_sets(source, settings, None, [], lambda _: None)
+        self.assertEqual([call.args[0] for call in read.call_args_list], [[supported], [supported]])
+        seed.assert_called_once_with(supported, source, pool._ohlc_report)
 
     def test_symbol_families_filter_the_funnel_before_search(self) -> None:
         items = [

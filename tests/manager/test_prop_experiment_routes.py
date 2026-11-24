@@ -10,6 +10,7 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from unittest import mock
 
 from mt5_manager.manager.manager import ManagerServer
 
@@ -98,7 +99,7 @@ class PropExperimentRouteTests(unittest.TestCase):
         status, script = self.request("/prop_experiment.js")
         self.assertEqual(status, 200)
         self.assertNotIn('querySelector("#portfolio-chart")', script)
-        self.assertIn('request("pool-inventory"', script)
+        self.assertIn('request(`pool-inventory?', script)
         self.assertIn("loadPoolInventory();", script)
         self.assertIn("generados aceptados FT6M", script)
         self.assertIn("seeds UBS aceptadas FT6M", script)
@@ -110,6 +111,15 @@ class PropExperimentRouteTests(unittest.TestCase):
         self.assertNotIn("details { margin-top", styles)
         self.assertIn("align-items: flex-end", styles)
         self.assertNotIn("align-items: flex-start", styles)
+
+    def test_symbol_exceptions_and_totals_are_visible_below_the_family_controls(self) -> None:
+        status, page = self.request("/prop_experiment.html")
+        self.assertEqual(status, 200)
+        self.assertIn('id="symbol-exception-list"', page)
+        self.assertLess(page.index('id="symbol-families"'), page.index('id="symbol-exception-total"'))
+        status, script = self.request("/prop_experiment.js")
+        self.assertEqual(status, 200)
+        self.assertIn("Total de sets admitidos", script)
 
     def test_profile_and_phase_configuration_is_served(self) -> None:
         status, config = self.request("/api/prop-experiment/config")
@@ -139,6 +149,29 @@ class PropExperimentRouteTests(unittest.TestCase):
         status, payload = self.request("/api/prop-experiment/pool-inventory")
         self.assertEqual(status, 200)
         self.assertEqual(payload, expected)
+
+    def test_pool_inventory_previews_filters_without_saving_them(self) -> None:
+        with mock.patch("mt5_manager.prop.prop_experiment_service.load_inventory", return_value={}) as inventory:
+            status, _ = self.request("/api/prop-experiment/pool-inventory"
+                                     "?source_nodes=ic&source_nodes=vantage&symbol_families=Metals&include_grids=1")
+            self.assertEqual(status, 200)
+            selected = inventory.call_args.args[0]
+            self.assertEqual(selected["source_nodes"], ["ic"])
+            self.assertEqual(selected["symbol_families"], ["Metals"])
+            self.assertTrue(selected["include_grids"])
+            self.request("/api/prop-experiment/pool-inventory?symbol_families=")
+            self.assertEqual(inventory.call_args.args[0]["source_nodes"], [])
+        self.assertEqual(self.manager.prop_experiments.settings()["symbol_families"], ["Forex", "Metals", "Indices"])
+        self.assertFalse(self.manager.prop_experiments.settings()["include_grids"])
+
+    def test_saved_contract_exclusions_are_removed_only_from_visible_warnings(self) -> None:
+        contract = "ic · candidate: 3 fuera por especificación del símbolo en The5ers sin verificar."
+        diagnostic = "ic · candidate: 1 fuera por valoración en EUR sin cotización OHLC reciente."
+        self.manager.prop_experiments.result = {"warnings": [contract, diagnostic]}
+        status, payload = self.request("/api/prop-experiment/state")
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["result"]["warnings"], [diagnostic])
+        self.assertEqual(self.manager.prop_experiments.result["warnings"], [contract, diagnostic])
 
     def test_vantage_is_visible_but_never_selected(self) -> None:
         config = self.request("/api/prop-experiment/config")[1]

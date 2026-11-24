@@ -10,7 +10,7 @@ from typing import Sequence
 
 from ..experiment.experiment_lab import LabAxis, valley_dd
 from .prop_experiment_engine import PropStrategy
-from .prop_execution import ObservedEuroRates, equivalent_volume_unit
+from .prop_execution import SYMBOL_CONTRACT_UNAVAILABLE, ObservedEuroRates, equivalent_volume_unit
 from .prop_position_book import PositionEvent, PropPosition
 from .the5ers_hyper_growth_engine import GrowthClose
 
@@ -125,7 +125,8 @@ def replay_window(
     if discards is not None:
         discards.update(rejected)
     warnings = [f'{node} · {kind}: {count} fuera por {reason}.'
-                for (node, kind, reason), count in sorted(rejected.items())]
+                for (node, kind, reason), count in sorted(rejected.items())
+                if reason != SYMBOL_CONTRACT_UNAVAILABLE]
     if not replayable:
         raise ValueError("No hay estrategias con cobertura completa y operaciones reproducibles. " + " ".join(warnings))
     return replayable, calendar, warnings
@@ -142,7 +143,9 @@ def _prop_position(item, trade, lots, rates, close_in_window):
         return None, 'dirección de la operación ausente'
     open_rate = rates.quote_rate(contract, prices[0], trade.open_time)
     close_rate = rates.quote_rate(contract, prices[1], trade.close_time) if close_in_window else open_rate
-    report_rate = rates.at(trade.currency, trade.close_time) if close_in_window else 1.0
+    report_rate = 1.0
+    if close_in_window:
+        report_rate = close_rate if trade.currency == contract.quote else rates.at(trade.currency, trade.close_time)
     if not all((open_rate, close_rate, report_rate)):
         return None, 'valoración en EUR sin cotización OHLC reciente'
     return PropPosition(
@@ -170,7 +173,7 @@ def _observed_daily_margins(events, days):
 
 def _replay_prop_strategy(item, days, rates):
     if item.prop_contract is None:
-        return None, 'especificación del símbolo en The5ers sin verificar'
+        return None, SYMBOL_CONTRACT_UNAVAILABLE
     if item.source_volume is None:
         return None, 'contrato o paso de lote del broker de origen sin verificar'
     if any(trade.open_time is None for trade in item.closed_trades

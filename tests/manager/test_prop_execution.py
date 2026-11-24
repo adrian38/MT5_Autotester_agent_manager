@@ -89,6 +89,33 @@ class PropExecutionTests(unittest.TestCase):
         self.assertAlmostEqual(rates.at('JPY', closed), 1 / 160 / 1.25)
         self.assertIsNone(rates.at('JPY', closed + timedelta(days=8)))
 
+    def test_audcad_replays_using_its_fill_when_cad_quote_is_stale(self):
+        opened = datetime(2026, 4, 8, 1, 40, 10)
+        closed = opened.replace(second=59)
+        observed = opened - timedelta(seconds=10)
+        audcad = ClosedTrade(opened, closed, 'AUDCAD.sa', 0.01, 38, open_price=0.975,
+                             close_price=0.97566, side='buy', currency='EUR')
+        references = [
+            ClosedTrade(observed, observed, symbol, 0.01, 0, open_price=price, close_price=price)
+            for symbol, price in (('EURUSD', 1.16), ('AUDUSD', 0.7))
+        ]
+        references.append(ClosedTrade(
+            opened - timedelta(days=8), closed + timedelta(seconds=41), 'USDCAD', 0.01, 0,
+            open_price=1.4, close_price=1.39,
+        ))
+        rates = ObservedEuroRates([], references)
+        self.assertIsNone(rates.at('CAD', closed))
+        day = '2026-04-08'
+        axis = LabAxis((day,), (0,), 1)
+        strategy = executable_pool([_strategy('audcad', 1, (38,))], set(), set())[0]
+        strategy = replace(strategy, prop_contract=destination_contract('AUDCAD.sa'),
+                           source_volume=VolumeSpec(100000, 0.01, 0.01),
+                           coverage=((day, day),), closed_trades=(audcad,))
+        items, _, warnings = replay_window([strategy], axis, day, day, rates=rates)
+        self.assertEqual(warnings, [])
+        self.assertEqual(items[0].series, (38,))
+        self.assertAlmostEqual(items[0].position_events[0][-1].position.close_quote_rate, 0.7 / 1.16 / 0.97566)
+
     def test_available_margin_uses_equity_after_a_loss_and_ignores_rejected_closes(self):
         morning = datetime(2025, 1, 2, 9)
         noon = morning.replace(hour=12)

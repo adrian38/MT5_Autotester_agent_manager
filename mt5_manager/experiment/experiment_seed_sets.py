@@ -112,12 +112,15 @@ def load_seed_sets(
     limit: int,
     require_final_tick_6m: bool = False,
     allowed_set_names: Collection[str] | None = None,
+    include_row: Callable[[dict[str, Any]], bool] | None = None,
 ) -> tuple[list[RobustStrategySet], list[str], int]:
     rows = accepted_seed_rows(source, require_final_tick_6m=require_final_tick_6m)
     if allowed_set_names is not None:
         allowed = {str(name).casefold() for name in allowed_set_names}
         rows = [row for row in rows if Path(str(row.get("seed_path") or "")).name.casefold() in allowed]
     total = len(rows)
+    if include_row is not None:
+        rows = [row for row in rows if include_row(row)]
     if limit > 0:
         rows = rows[:limit]
     loaded: list[RobustStrategySet] = []

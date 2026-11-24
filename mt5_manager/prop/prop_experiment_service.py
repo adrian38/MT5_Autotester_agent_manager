@@ -23,7 +23,7 @@ from .prop_experiment_pool import load_fx_reference, load_inventory, load_pool
 from .prop_experiment_reporting import attempt_analysis
 from .prop_profiles import EXPERIMENT_PROFILE_IDS, profile, profiles_payload
 from .prop_experiment_validation import NodeRequest, validate_portfolio
-from .prop_execution import ObservedEuroRates
+from .prop_execution import SYMBOL_CONTRACT_UNAVAILABLE, ObservedEuroRates
 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -218,7 +218,13 @@ class PropExperimentCoordinator:
     def state(self) -> dict[str, Any]:
         with self.lock:
             snapshot = composition_snapshot(self.result)
-            return {"job": dict(self.job), "result": self.result,
+            result = self.result
+            if result and result.get("warnings"):
+                result = {**result, "warnings": [
+                    warning for warning in result["warnings"]
+                    if not str(warning).endswith(f" fuera por {SYMBOL_CONTRACT_UNAVAILABLE}.")
+                ]}
+            return {"job": dict(self.job), "result": result,
                     "composition_id": snapshot["id"] if snapshot else None}
 
     def save_composition(self, composition_id: str) -> dict[str, Any]:
@@ -234,10 +240,22 @@ class PropExperimentCoordinator:
         with self.lock:
             return {"lines": list(self.log_lines)[-max(lines, 1):]}
 
-    def pool_inventory(self) -> dict[str, Any]:
+    def pool_inventory(self, filters: dict[str, list[str]] | None = None) -> dict[str, Any]:
         """Cuenta rápidamente la admisión por fases antes de abrir los informes OHLC."""
+        settings = self.settings()
+        if filters:
+            choices = {"source_nodes": self._allowed_nodes(),
+                       "symbol_families": profile(settings["profile_id"]).symbol_families}
+            for key, allowed in choices.items():
+                if key in filters:
+                    settings[key] = list(dict.fromkeys(item for item in filters[key] if item in allowed))
+            for key in ("include_grids", "active_portfolios_only"):
+                if key in filters:
+                    settings[key] = filters[key][-1:] == ["1"]
+        if not settings["symbol_families"]:
+            settings["source_nodes"] = []
         return {"pool": load_inventory(
-            self.settings(), self.source_factory,
+            settings, self.source_factory,
             self.active_members_factory, self.symbol_settings_factory,
         )}
 

@@ -34,7 +34,8 @@ def handle_get(handler: Any, parsed: urllib.parse.ParseResult) -> bool:
             handler._send_json(200, coordinator.state())
             return True
         if action == "pool-inventory":
-            handler._send_json(200, coordinator.pool_inventory())
+            query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+            handler._send_json(200, coordinator.pool_inventory(query) if query else coordinator.pool_inventory())
             return True
         if action == "compositions":
             handler._send_json(200, {"compositions": coordinator.compositions.summaries()})

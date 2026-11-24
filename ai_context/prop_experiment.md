@@ -47,7 +47,12 @@ con el menor tiempo de aprobación posible y respetando sus reglas y bankroll.
   a `pool-inventory` para mostrar enseguida las admisiones por broker, sin abrir
   miles de informes. Cuenta fases, familias, símbolos deshabilitados, cuarentena
   y deduplicación. La fase 1 valida después credibilidad y cobertura OHLC;
-  guardar ajustes vuelve a calcular el inventario visible.
+  cambiar un filtro actualiza la vista previa sin guardar los ajustes.
+- Los símbolos sin contrato The5ers configurado son excepciones de las
+  familias. El inventario descuenta sus sets y muestra el total general, por
+  familia, por broker y por símbolo debajo de los selectores. Candidatas, seeds
+  y manuales se filtran antes de abrir sus informes. Este descarte previsto
+  queda fuera del monitor de avisos y sigue separado de los fallos de valoración.
 
 `PortfolioSource.saved_portfolios()` devuelve un estado con la lista dentro de
 `portfolios`, no la lista directamente. El primer recorrido de portafolios
@@ -136,6 +141,10 @@ disponible hacia EUR, directa o vía USD. El margen y el flotante se valoran
 desde la divisa de cotización del símbolo. Cada cruce debe tener una observación
 reciente. Si falta una cotización al abrir la ventana, los informes OHLC
 anteriores sólo aportan precios FX observados hasta ese momento.
+Para un cruce FX sin una cotización reciente de su divisa cotizada, el motor
+puede usar la tasa a EUR de la divisa base dividida por el precio observado
+de la propia operación. Así se reproduce el cierre AUDCAD del 08-04-2026
+en AXI aunque el siguiente USD/CAD llegue 41 segundos después.
 Las fichas de [The5ers](https://lp.the5ers.com/hub-assets-specifications/)
 y [RoboForex ECN](https://roboforex.com/help/faq/trading-vocabulary/what-is-a-lot/)
 son el respaldo del tamaño de contrato publicado. Las fichas del terminal de

@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 import json
 import re
+from collections import Counter, defaultdict
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
@@ -51,13 +52,22 @@ def _without_quarantine(items: list[Any], source: Any, keys: set[str]) -> list[A
     return [item for item in items if source._match_key(item.set_path) not in keys]
 
 
+def _row_symbol(row: dict[str, Any]) -> str:
+    return str(row.get("executable_symbol") or row.get("target_symbol") or row.get("symbol") or "").strip()
+
+
+def _symbol_exception(row: dict[str, Any]) -> str:
+    symbol = _row_symbol(row)
+    return portfolio_symbol_key(symbol) if symbol and destination_contract(symbol) is None else ""
+
+
 def _row_family_allowed(row: dict[str, Any], settings: dict[str, Any]) -> bool:
     allowed = set(settings.get("symbol_families") or [])
     disabled = {str(item).casefold() for item in settings.get("disabled_symbols") or []}
-    symbol = row.get("executable_symbol") or row.get("target_symbol") or row.get("symbol")
+    symbol = _row_symbol(row)
     return (
-        str(symbol or "").casefold() not in disabled
-        and (not allowed or portfolio_group_key(str(symbol or "")) in allowed)
+        symbol.casefold() not in disabled
+        and (not allowed or portfolio_group_key(symbol) in allowed)
     )
 
 
@@ -88,7 +98,7 @@ def _read_ohlc_sets(rows, path_key, source_label, warnings, checkpoint):
             if not path or not set_path or not Path(path).is_file():
                 raise ValueError('falta el informe OHLC del tramo')
             report = _ohlc_report(Path(path))
-            symbol = row.get('executable_symbol') or row.get('target_symbol') or row.get('symbol')
+            symbol = _row_symbol(row)
             if symbol and portfolio_symbol_key(symbol) != portfolio_symbol_key(report.symbol):
                 raise ValueError(f'símbolo OHLC {report.symbol} distinto de {symbol}')
             candidate = single_report_strategy(report, row, set_path, set_path, 'accepted', report_path=path)
@@ -125,7 +135,7 @@ def _candidate_sets(
     if allowed is not None:
         rows = [row for row in rows if _set_name(row.get("set_path")) in allowed]
     total = len(rows)
-    rows = [row for row in rows if _row_family_allowed(row, settings)]
+    rows = [row for row in rows if _row_family_allowed(row, settings) and not _symbol_exception(row)]
     checkpoint(f"{source.broker}: cargando {len(rows)} candidatas de {total}")
     loaded = _read_ohlc_sets(rows, _ohlc_segment(settings), f'{source.broker} · candidatas', warnings, checkpoint)
     return loaded, total, len(rows)
@@ -141,6 +151,7 @@ def _seed_sets(
     loaded, notes, total = load_seed_sets(
         source, parse=_ohlc_report, limit=0,
         require_final_tick_6m=True, allowed_set_names=allowed,
+        include_row=lambda row: not _symbol_exception(row),
     )
     loaded = _filter_symbol_families(loaded, settings)
     warnings.extend(notes)
@@ -169,8 +180,9 @@ def _manual_sets(
     if not settings["include_manual_portfolios"]:
         return [], 0
     rows = _manual_member_rows(source, allowed)
-    checkpoint(f"{source.broker}: cargando {len(rows)} estrategias de portafolios manuales")
-    loaded = _read_ohlc_sets(rows, _ohlc_segment(settings), f'{source.broker} · manuales', warnings, checkpoint)
+    eligible = [row for row in rows if not _symbol_exception(row)]
+    checkpoint(f"{source.broker}: cargando {len(eligible)} estrategias de portafolios manuales")
+    loaded = _read_ohlc_sets(eligible, _ohlc_segment(settings), f'{source.broker} · manuales', warnings, checkpoint)
     return loaded, len(rows)
 
 
@@ -192,7 +204,7 @@ def load_fx_reference(source_factory, settings, checkpoint, currencies, *, prece
             continue
         selected = {pair: [] for pair in pairs | earlier_pairs}
         for row in rows:
-            symbol = portfolio_symbol_key(row.get('executable_symbol') or row.get('target_symbol') or row.get('symbol'))
+            symbol = portfolio_symbol_key(_row_symbol(row))
             if symbol in selected and len(selected[symbol]) < 12:
                 selected[symbol].append(row)
         read = _read_ohlc_sets([row for pair in pairs for row in selected[pair]], _ohlc_segment(settings),
@@ -225,9 +237,7 @@ def _inventory_rows(rows, settings, allowed, excluded, path_field):
         row = dict(raw)
         path = row.get(path_field)
         name, logical = _set_name(path), _logical_set_name(path)
-        symbol = str(
-            row.get("executable_symbol") or row.get("target_symbol") or row.get("symbol") or ""
-        )
+        symbol = _row_symbol(row)
         if allowed is not None and name not in allowed:
             continue
         if excluded(path) or symbol.casefold() in disabled:
@@ -239,6 +249,22 @@ def _inventory_rows(rows, settings, allowed, excluded, path_field):
         row["_logical_name"] = logical
         result.append(row)
     return result
+
+
+def _count_symbol_exceptions(rows, source_kind, exceptions, higher_priority):
+    portable = []
+    found = set()
+    for row in rows:
+        symbol = _symbol_exception(row)
+        if symbol:
+            key = (symbol, row["_logical_name"])
+            if key not in higher_priority:
+                exceptions[symbol][source_kind] += 1
+                found.add(key)
+        else:
+            portable.append(row)
+    higher_priority.update(found)
+    return portable
 
 
 def _source_inventory(source, settings, allowed) -> dict[str, Any]:
@@ -257,6 +283,11 @@ def _source_inventory(source, settings, allowed) -> dict[str, Any]:
     manual = _inventory_rows(
         _manual_member_rows(source, allowed), settings, allowed, excluded, "set_path",
     )
+    exceptions = defaultdict(Counter)
+    prior_exceptions = set()
+    candidates = _count_symbol_exceptions(candidates, "candidates", exceptions, prior_exceptions)
+    seeds = _count_symbol_exceptions(seeds, "seeds", exceptions, prior_exceptions)
+    manual = _count_symbol_exceptions(manual, "manual", exceptions, prior_exceptions)
     candidate_names = {row["_logical_name"] for row in candidates}
     seeds = [row for row in seeds if row["_logical_name"] not in candidate_names]
     used = candidate_names | {row["_logical_name"] for row in seeds}
@@ -264,6 +295,12 @@ def _source_inventory(source, settings, allowed) -> dict[str, Any]:
     return {
         "candidates": len(candidates), "seeds": len(seeds), "manual": len(manual),
         "total": len(candidates) + len(seeds) + len(manual),
+        "symbol_exceptions": [
+            {"symbol": symbol, "family": portfolio_group_key(symbol), "total": sum(counts.values()),
+             **{kind: counts[kind] for kind in ("candidates", "seeds", "manual")}}
+            for symbol, counts in sorted(exceptions.items())
+        ],
+        "symbol_exception_total": sum(counts.total() for counts in exceptions.values()),
     }
 
 
@@ -286,9 +323,13 @@ def load_inventory(
             rows.append({
                 "node_id": node_id, "broker": node_id, "candidates": 0,
                 "seeds": 0, "manual": 0, "total": 0, "error": str(exc),
+                "symbol_exceptions": [], "symbol_exception_total": 0,
             })
     rows.sort(key=lambda row: (row["broker"], row["node_id"]))
-    return {"strategies": sum(row["total"] for row in rows), "by_broker": rows}
+    return {
+        "strategies": sum(row["total"] for row in rows), "by_broker": rows,
+        "symbol_exception_total": sum(row["symbol_exception_total"] for row in rows),
+    }
 
 
 def load_origin(

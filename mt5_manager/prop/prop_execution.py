@@ -30,6 +30,7 @@ class PropContract:
 
 # Published by The5ers. Index units use multiples of the published increment.
 FOREX_CURRENCIES = frozenset(('AUD', 'CAD', 'CHF', 'EUR', 'GBP', 'JPY', 'NZD', 'USD'))
+SYMBOL_CONTRACT_UNAVAILABLE = 'especificación del símbolo en The5ers sin verificar'
 PROP_METALS = {'XAUUSD': 100, 'XAGUSD': 5000}
 PROP_INDICES = {
     '.USTECHCASH': ('NAS100', 'USD', 0.1), 'USTECH': ('NAS100', 'USD', 0.1),
@@ -151,4 +152,8 @@ class ObservedEuroRates:
         if contract.base in ('EUR', 'USD'):
             base_rate = self.at(contract.base, when)
             return base_rate / price if base_rate is not None else None
-        return self.at(contract.quote, when)
+        quote_rate = self.at(contract.quote, when)
+        if quote_rate is not None or not contract.base:
+            return quote_rate
+        base_rate = self.at(contract.base, when)
+        return base_rate / price if base_rate is not None else None

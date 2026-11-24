@@ -8,6 +8,7 @@ let managedSymbol = "";
 let managedSymbolSets = [];
 let phaseTwoRows = [];
 let attemptCalendar = [];
+let inventoryRequest, inventoryRefresh;
 
 const esc = value => String(value ?? "").replace(/[&<>'"]/g, character => ({
   "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;",
@@ -200,6 +201,7 @@ async function saveManagedSymbol() {
   if (document.querySelector("#prop-symbol-disabled").checked) next.push(managedSymbol);
   await portfolioRequest(managedBrokerNode, "settings", {disabled_symbols:next});
   await refreshBrokerState(managedBrokerNode);
+  loadPoolInventory();
   toast(`${managedSymbol} ${next.some(symbol => symbol.toLowerCase() === target) ? "deshabilitado" : "habilitado"} para este broker.`);
 }
 
@@ -227,6 +229,7 @@ async function changeManagedSetState(row) {
     await runExclusion(plan, {set_path:row.set_path, reason_code:plan.reasonCode});
   }
   await Promise.all([loadManagedSymbolSets(), refreshBrokerState(managedBrokerNode)]);
+  loadPoolInventory();
   toast(`${shortSetName(setName)} actualizado en este broker.`);
 }
 
@@ -254,23 +257,63 @@ function renderBrokerPool(result) {
   const metrics = document.querySelector("#broker-pool-metrics");
   panel.hidden = false;
   metrics.className = rows.length ? "metrics" : "metrics empty";
-  metrics.innerHTML = rows.length ? rows.map(row => metric(
+  const totalLabel = rows.some(row => row.error) ? "Subtotal de sets admitidos" : "Total de sets admitidos";
+  metrics.innerHTML = rows.length ? metric(totalLabel, result.pool.strategies) + rows.map(row => row.error
+    ? metric(row.broker, "No disponible") : metric(
     `${row.broker} · ${row.candidates} generados aceptados FT6M + ${row.seeds} seeds UBS aceptadas FT6M + ${row.manual} manuales sin fases`,
     row.total,
   )).join("") : "Ningún set admitido con los ajustes actuales.";
 }
 
+function renderSymbolExceptions(pool) {
+  const rows = pool.by_broker || [];
+  const families = new Map();
+  const groups = rows.filter(row => row.symbol_exception_total).map(row => {
+    const items = row.symbol_exceptions.map(item => {
+      families.set(item.family, (families.get(item.family) || 0) + item.total);
+      return `<li>${esc(item.family)} · <code>${esc(item.symbol)}</code> <b>${number(item.total, 0)}</b></li>`;
+    });
+    return `<div class="symbol-exception-group"><p><strong>${esc(row.broker)}</strong> · ${number(row.symbol_exception_total, 0)} sets</p><ul>${items.join("")}</ul></div>`;
+  });
+  const total = pool.symbol_exception_total || 0;
+  const partial = rows.some(row => row.error) ? " · inventario parcial" : "";
+  const totalsByFamily = [...families].map(([family, count]) => `${family} ${number(count, 0)}`).join(" · ");
+  document.querySelector("#symbol-exception-total").textContent = total
+    ? `${number(total, 0)} sets con contrato sin verificar · ${totalsByFamily}${partial}`
+    : `0 excepciones en la selección${partial}`;
+  document.querySelector("#symbol-exception-list").innerHTML = groups.join("");
+}
+
 async function loadPoolInventory() {
+  clearTimeout(inventoryRefresh);
+  inventoryRequest?.abort();
+  const controller = new AbortController();
+  inventoryRequest = controller;
+  const settings = formSettings();
+  const query = new URLSearchParams({
+    include_grids: Number(settings.include_grids), active_portfolios_only: Number(settings.active_portfolios_only),
+  });
+  for (const key of ["symbol_families", "source_nodes"]) {
+    for (const value of settings[key].length ? settings[key] : [""]) query.append(key, value);
+  }
   const metrics = document.querySelector("#broker-pool-metrics");
   const note = document.querySelector("#broker-pool-note");
+  const exceptions = document.querySelector("#symbol-exception-total");
   metrics.className = "metrics empty";
   metrics.textContent = "Leyendo inventario admitido…";
+  exceptions.textContent = "Leyendo excepciones…";
+  document.querySelector("#symbol-exception-list").replaceChildren();
   try {
-    renderBrokerPool(await request("pool-inventory", {cache:"no-store"}));
-    note.textContent = "Total admitido por fases, familias, cuarentena, grids y deduplicación; la fase 1 verificará cada OHLC.";
+    const data = await request(`pool-inventory?${query}`, {cache:"no-store", signal:controller.signal});
+    if (controller.signal.aborted) return;
+    renderBrokerPool(data);
+    renderSymbolExceptions(data.pool || {});
+    note.textContent = "Admisiones tras aplicar los filtros y las excepciones de símbolos. La fase 1 verifica cada OHLC.";
   } catch (error) {
+    if (controller.signal.aborted) return;
     metrics.textContent = `No se pudo leer el inventario: ${error.message}`;
     note.textContent = "No hay un inventario disponible.";
+    exceptions.textContent = "No se pudieron contar las excepciones.";
   }
 }
 
@@ -506,6 +549,12 @@ async function post(action, body={}) {
 
 window.PropComposition.init({esc, number, request, renderState, toast});
 document.querySelector("#profile_id").addEventListener("change", () => renderProfileContract(document.querySelector("#capital").value, checkedFamilies()));
+for (const selector of ["#symbol-families", "#nodes", "#include_grids", "#active_portfolios_only"]) {
+  document.querySelector(selector).addEventListener("change", () => {
+    clearTimeout(inventoryRefresh);
+    inventoryRefresh = setTimeout(loadPoolInventory, 180);
+  });
+}
 document.querySelector("#reload").addEventListener("click", () => {
   document.querySelector("#refresh-state").textContent = "Actualizando…";
   request("config").then(renderConfig).catch(error => markLoaded(error.message));
