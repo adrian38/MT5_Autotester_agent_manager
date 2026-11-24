@@ -81,8 +81,8 @@
       </section>
       <div id="metrics" class="metrics empty">Aún no hay un resultado.</div>
       <section id="broker-pool-summary" class="broker-pool-summary">
-        <div class="comparison-head"><div><p class="eyebrow">POOL DE FASE 1</p><h3>Sets utilizables por broker</h3><p id="broker-pool-note">Leyendo admisiones Final Tick 6M y portafolios manuales…</p></div></div>
-        <div id="broker-pool-metrics" class="metrics empty">Calculando inventario utilizable…</div>
+        <div class="comparison-head"><div><p class="eyebrow">POOL DE FASE 1</p><h3>Admisiones por broker</h3><p id="broker-pool-note">Leyendo admisiones Final Tick 6M y portafolios manuales…</p></div></div>
+        <div id="broker-pool-metrics" class="metrics empty">Calculando inventario preliminar…</div>
       </section>
       <div id="result-contract" class="metrics contract-metrics" hidden></div>
       <details id="pool-outcome" hidden>
@@ -132,7 +132,7 @@
       <div id="plan-profiles" class="plan-profiles"></div>
     </section>
   </main>
-  <footer>La campaña simula los cierres en orden horario. Los reportes no muestran el recorrido de la equity flotante entre cierres.</footer>
+  <footer>La campaña estima la equity y el margen libre en los precios observados de apertura y cierre del OHLC.</footer>
   <dialog id="prop-symbol-dialog" class="log-dialog symbol-manager-dialog">
     <div class="dialog-head"><div><p class="eyebrow">GESTIÓN POR SÍMBOLO Y BROKER</p><h2 id="prop-symbol-title">Sets del símbolo</h2><p id="prop-symbol-summary" class="subtitle"></p></div><button type="button" class="icon-button" data-prop-symbol-close aria-label="Cerrar">×</button></div>
     <fieldset><legend>Disponibilidad del símbolo</legend><label class="symbol-disable-option"><input id="prop-symbol-disabled" type="checkbox"> Deshabilitar en generaciones UBS y en Experimenta Prop para este broker</label></fieldset>

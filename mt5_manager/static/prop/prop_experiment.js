@@ -258,7 +258,7 @@ function renderBrokerPool(result) {
   metrics.innerHTML = rows.length ? rows.map(row => metric(
     `${row.broker} · ${row.candidates} generados aceptados FT6M + ${row.seeds} seeds UBS aceptadas FT6M + ${row.manual} manuales sin fases`,
     row.total,
-  )).join("") : "Ningún set utilizable con los ajustes actuales.";
+  )).join("") : "Ningún set admitido con los ajustes actuales.";
 }
 
 async function loadPoolInventory() {
