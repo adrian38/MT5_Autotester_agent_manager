@@ -149,6 +149,9 @@ class PropExperimentRouteTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn('id="engine_version"', page)
         self.assertIn('id="refresh_pool"', page)
+        script = self.request('/prop_experiment.js')[1]
+        self.assertIn('Sólo con el motor V2.', script)
+        self.assertIn('elige V2 en «Motor de creación»', script)
         self.assertEqual(self.request('/api/prop-experiment/settings', {'engine_version': 'v3'})[0], 400)
         self.assertEqual(self.request('/api/prop-experiment/run', {'refresh_pool': True})[0], 400)
         coordinator = self.manager.prop_experiments

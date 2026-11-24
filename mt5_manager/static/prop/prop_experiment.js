@@ -110,6 +110,12 @@ function syncPoolRefresh() {
   const refresh = document.querySelector("#refresh_pool");
   refresh.disabled = document.querySelector("#engine_version").value !== "v2";
   if (refresh.disabled) refresh.checked = false;
+  // A greyed box with no reason reads as broken: say which engine enables it.
+  const note = refresh.disabled
+    ? "Sólo con el motor V2. V1 vuelve a leer sets e informes en cada ejecución; elige V2 en «Motor de creación» para usar la casilla."
+    : "V2 reaprovecha los archivos procesados. Marca la casilla para volver a leerlos en la próxima ejecución.";
+  document.querySelector("#refresh-pool-note").textContent = note;
+  refresh.closest("label").title = note;
 }
 
 function fillForm(settings) {
