@@ -19,10 +19,13 @@ PHASE_ONE_FROM = "2025-01-01"
 # Los reportes MT5 empiezan en el primer día de mercado de 2025; no se exige
 # cobertura artificial del festivo 2025-01-01.
 PHASE_ONE_FIRST_DAY = "2025-01-02"
-# El 2026-06-01 es el corte exclusivo solicitado. El último día incluido es
-# domingo; por tanto, el último día de mercado exigido por el eje es 2026-05-29.
-PHASE_ONE_TO = "2026-06-01"
-PHASE_ONE_LAST_DAY = "2026-05-31"
+# El 2026-05-21 es el corte exclusivo solicitado. Hasta el 2026-11-24 la
+# ventana acababa a fin de mayo, y eso dejaba fuera por cobertura incompleta a
+# las seeds cuyo informe OHLC terminaba unos días antes del cierre: el eje
+# exige todos sus días de mercado, así que faltar uno basta. El último día
+# incluido, 2026-05-20, es miércoles y es por tanto el último que exige el eje.
+PHASE_ONE_TO = "2026-05-21"
+PHASE_ONE_LAST_DAY = "2026-05-20"
 PHASE_TWO_FROM = "2025-11-20"
 PHASE_TWO_TO = "2026-11-20"
 PHASE_THREE_FROM = "2020-01-01"

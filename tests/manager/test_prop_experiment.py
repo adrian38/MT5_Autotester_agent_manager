@@ -305,14 +305,34 @@ class PropExperimentEngineTests(unittest.TestCase):
         self.assertAlmostEqual(result_payload(result, axis, 5000)["portfolio"]["net_profit"], 550.0)
         self.assertEqual(_validation_groups(result_payload(result))[0][1], 0.1)
 
-    def test_phase_one_june_first_cutoff_is_exclusive(self) -> None:
-        self.assertEqual(PHASE_ONE_TO, "2026-06-01")
+    def test_phase_one_may_twenty_first_cutoff_is_exclusive(self) -> None:
+        self.assertEqual(PHASE_ONE_TO, "2026-05-21")
         self.assertEqual(PHASE_ONE_FIRST_DAY, "2025-01-02")
-        self.assertEqual(PHASE_ONE_LAST_DAY, "2026-05-31")
+        self.assertEqual(PHASE_ONE_LAST_DAY, "2026-05-20")
         axis = _calendar_axis(("2026-05-29",), PHASE_ONE_FIRST_DAY, PHASE_ONE_LAST_DAY)
         self.assertEqual(axis.days[0], PHASE_ONE_FIRST_DAY)
-        self.assertEqual(axis.days[-1], "2026-05-29")
+        self.assertEqual(axis.days[-1], PHASE_ONE_LAST_DAY)
         self.assertNotIn(PHASE_ONE_TO, axis.days)
+        self.assertNotIn("2026-05-29", axis.days)
+
+    def test_a_report_that_ends_on_the_cutoff_day_still_enters(self) -> None:
+        """La ventana se acortó para no perder seeds por unos días de informe."""
+        candidate = replace(_strategy("seed", 10.0, (0.0,)), margin_per_unit=100.0)
+        item = executable_pool([candidate], set(), set())[0]
+        item = replace(
+            item, lot_per_unit=0.1, coverage=((PHASE_ONE_FROM, PHASE_ONE_LAST_DAY),),
+            closed_trades=(ClosedTrade(
+                datetime(2026, 5, 20, 8), datetime(2026, 5, 20, 9), "EURUSD", 0.2, 10.0,
+            ),),
+        )
+        short = replace(item, coverage=((PHASE_ONE_FROM, "2026-05-19"),))
+        days = (PHASE_ONE_FIRST_DAY, PHASE_ONE_LAST_DAY)
+        items, axis, warnings = replay_window(
+            [item, short], LabAxis(days, (0, 1), 2), PHASE_ONE_FIRST_DAY, PHASE_ONE_LAST_DAY,
+        )
+        self.assertEqual(len(items), 1)
+        self.assertEqual(axis.days[-1], PHASE_ONE_LAST_DAY)
+        self.assertIn("cobertura OHLC incompleta", warnings[0])
 
 
 if __name__ == "__main__":

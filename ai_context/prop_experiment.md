@@ -138,9 +138,13 @@ son el respaldo del tamaño de contrato publicado. Las fichas del terminal de
 origen prevalecen cuando están disponibles.
 
 La selección usa exclusivamente aperturas y cierres del OHLC OOS del periodo
-`[2025-01-01, 2026-06-01)`. La reproducción empieza el primer día de mercado,
-2025-01-02; el corte 2026-06-01 es exclusivo y el último día de mercado exigido
-es 2026-05-29. Final Tick 6M decide la elegibilidad de las candidatas, pero su
+`[2025-01-01, 2026-05-21)`. La reproducción empieza el primer día de mercado,
+2025-01-02; el corte 2026-05-21 es exclusivo y el último día de mercado exigido
+es 2026-05-20. **Hasta el 2026-11-24 la ventana cerraba el 2026-06-01**, con
+2026-05-29 como último día exigido, y eso descartaba por «cobertura OHLC
+incompleta» a seeds cuyo informe terminaba sólo unos días antes: el eje exige
+**todos** sus días de mercado, así que faltar uno basta para quedarse fuera.
+Acortar la ventana al 20 de mayo las admite. Final Tick 6M decide la elegibilidad de las candidatas, pero su
 curva Every Tick no se incorpora a la simulación de fase 1. Cada tramo lee su
 informe OHLC directamente. Un IS solapado o ausente ya no descarta un OOS válido.
 `seed_scores.report_path` lo escribe el lanzador de seeds UBS con modelo 1.
