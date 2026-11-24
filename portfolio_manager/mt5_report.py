@@ -85,6 +85,8 @@ class StrategyReport:
     # saber que ventana cubre un reporte, no solo cuando opero dentro de ella.
     backtest_start: str = ""
     backtest_end: str = ""
+    currency: str = ""
+    model: str = ""
 
 
 def parse_report(path: Path) -> StrategyReport:
@@ -120,6 +122,8 @@ def parse_report(path: Path) -> StrategyReport:
         period_end=end,
         backtest_start=_iso_date(cfg_start),
         backtest_end=_iso_date(cfg_end),
+        currency=_first_value(config, "Currency", "Divisa", "Moneda").upper(),
+        model=_first_value(config, "Model", "Modelo", "Modelado"),
         initial_deposit=_initial_deposit(deals),
         metrics=metrics,
         monthly={year: dict(months) for year, months in monthly.items()},
@@ -141,7 +145,10 @@ def _parse_config(rows: list[list[str]]) -> dict[str, str]:
             continue
         key = cells[0].rstrip(":").strip()
         value = cells[1].strip()
-        if key in {"Expert", "Symbol", "Period", "Experto", "Símbolo", "Simbolo", "Período", "Periodo"}:
+        if key in {
+            "Expert", "Symbol", "Period", "Experto", "Símbolo", "Simbolo", "Período", "Periodo",
+            "Currency", "Divisa", "Moneda", "Model", "Modelo", "Modelado",
+        }:
             config[key] = value
     return config
 

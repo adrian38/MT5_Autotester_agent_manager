@@ -69,15 +69,22 @@ def _seed_strategy(row: dict[str, Any], source: Any, parse: Callable[[Path], Any
     if not report_path or not Path(report_path).is_file():
         raise ValueError(f"informe seed ausente: {row.get('report_path')}")
     report = parse(Path(report_path))
-    period = period_report_from_strategy_report(report, "seed")
     set_id = f"seed-{row.get('id')}-{Path(set_path).stem}"
+    return single_report_strategy(report, row, set_path, set_id, "seed_accepted", report_path=report_path)
+
+
+def single_report_strategy(
+    report: Any, row: dict[str, Any], set_path: str, set_id: str, status: str,
+    *, report_path: str,
+) -> RobustStrategySet:
+    period = period_report_from_strategy_report(report, "seed" if status == "seed_accepted" else "OHLC")
     return RobustStrategySet(
         set_id=set_id,
-        candidate_id=set_id,
+        candidate_id=str(row.get("candidate_id") or set_id),
         symbol=report.symbol or str(row.get("symbol") or ""),
         timeframe=report.timeframe or str(row.get("period") or ""),
-        strategy_family=str(row.get("family") or "seed"),
-        robustness_status="seed_accepted",
+        strategy_family=str(row.get("family") or ("seed" if status == "seed_accepted" else "")),
+        robustness_status=status,
         already_used=False,
         report_2020_2024=period,
         report_2025_2026=period,
@@ -89,7 +96,7 @@ def _seed_strategy(row: dict[str, Any], source: Any, parse: Callable[[Path], Any
         return_dd_2020_2026=period.return_dd_ratio,
         trades_2020_2026=period.trades,
         set_path=set_path,
-        full_history_report_path=report_path,
+        full_history_report_path=str(report_path),
         curve_points_2020_2026_001=list(period.pnl_points_001),
         max_balance_dd_001=period.balance_dd_metric_001,
         max_equity_dd_001=period.equity_dd_metric_001,

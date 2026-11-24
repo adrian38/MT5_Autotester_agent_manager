@@ -244,6 +244,8 @@ function clearResult() {
   document.querySelector("#phase-two-comparison").hidden = true;
   document.querySelector("#phase-three-result").hidden = true;
   document.querySelector("#attempt-analysis").hidden = true;
+  document.querySelector("#search-comparison").hidden = true;
+  document.querySelector("#pool-outcome").hidden = true;
   document.querySelector("#axis").textContent = "";
 }
 
@@ -324,11 +326,29 @@ function renderPortfolioContract(result) {
     + metric("Coste por prueba", `€${number(settings.evaluation_fee_eur)}`)
     + metric("Capital de la prueba", `$${number(settings.capital, 0)}`)
     + metric("Apalancamiento por familia", leverageText(profile))
-    + metric("Margen pico OHLC", `$${number(portfolio.margin_required)} · ${number(portfolio.margin_pct, 1)}%`)
-    + metric("Net histórico", `$${number(portfolio.net_profit)}`)
-    + metric("DD máximo cerrado", `$${number(portfolio.max_drawdown)}`)
-    + metric("Mejor día", `$${number(portfolio.best_day)}`)
-    + metric("Peor día", `$${number(portfolio.worst_day)}`);
+    + metric("Margen pico de la campaña", result.evaluation.peak_margin == null ? "—" : `$${number(result.evaluation.peak_margin)}`)
+    + metric("Margen libre mínimo observado", result.evaluation.minimum_free_margin == null ? "—" : `$${number(result.evaluation.minimum_free_margin)}`);
+}
+
+function renderSearchComparison(result) {
+  const rows = result.proposals_by_size || [];
+  document.querySelector("#search-comparison").hidden = !rows.length;
+  document.querySelector("#search-comparison-rows").innerHTML = rows.map(row =>
+    `<tr><td>${number(row.members, 0)}</td><td>${number(row.evaluated, 0)}</td><td>${number(row.feasible, 0)}</td><td>${row.best_passed ?? "—"}</td><td>${row.best_median_days ?? "—"}</td><td>${row.best_pass_rate == null ? "—" : `${number(row.best_pass_rate, 1)}%`}</td></tr>`
+  ).join("");
+}
+
+function renderPoolOutcome(result) {
+  const rows = result.pool?.by_broker || [];
+  const labels = {candidate:"generadas", seed:"seeds", manual:"manuales"};
+  document.querySelector("#pool-outcome").hidden = !rows.length;
+  document.querySelector("#pool-outcome-rows").innerHTML = rows.map(row => {
+    const usable = `${row.candidates} generadas, ${row.seeds} seeds y ${row.manual} manuales`;
+    const discarded = (row.discarded || []).map(item =>
+      `<li>${esc(`${item.count} ${labels[item.source]} · ${item.reason}`)}</li>`
+    ).join("");
+    return `<p><strong>${esc(row.broker)}</strong> · ${esc(usable)}</p>${discarded ? `<ul>${discarded}</ul>` : ""}`;
+  }).join("");
 }
 
 function renderAttemptMonth(month) {
@@ -381,17 +401,19 @@ function renderResult(result) {
   document.querySelector("#allocation-table").hidden = false;
   const evaluation = result.evaluation;
   document.querySelector("#metrics").className = "metrics";
-  document.querySelector("#metrics").innerHTML = metric("Probabilidad histórica", `${number(evaluation.pass_rate, 1)}%`)
-    + metric("Trials aprobados", `${evaluation.passed}/${evaluation.trials}`)
-    + metric("Mediana para aprobar", evaluation.median_days ? `${number(evaluation.median_days, 0)} días` : "—")
+  document.querySelector("#metrics").innerHTML = metric("Aprobadas de las resueltas", `${evaluation.passed}/${evaluation.trials}`)
+    + metric("Mediana para aprobar", evaluation.median_days ? `${number(evaluation.median_days, 1)} días naturales` : "—")
+    + metric("Tasa de aprobación simulada", `${number(evaluation.pass_rate, 1)}%`)
     + metric("Pool", `${result.pool.candidates} generadas aceptadas FT6M + ${result.pool.seeds} seeds UBS aceptadas FT6M + ${result.pool.manual || 0} manuales sin fases`);
   document.querySelector("#axis").textContent = `${result.axis.from} → ${result.axis.to}`;
   document.querySelector("#warnings").innerHTML = (result.warnings || []).map(item => `<div class="warning">${esc(item)}</div>`).join("");
   const labels = {seed:"Seed 6M", manual:"Manual", candidate:"Candidata"};
   const excluded = new Set(result.excluded_keys || []);
-  document.querySelector("#allocations").innerHTML = result.allocations.map(item => `<tr><td><input type="checkbox" data-prop-exclude="${esc(item.key)}" ${excluded.has(item.key) ? "checked disabled" : ""} aria-label="Excluir ${esc(item.set_id)}"></td><td>${esc(item.origin)}</td><td><span class="badge ${esc(item.source_kind)}">${esc(labels[item.source_kind] || item.source_kind)}</span></td><td title="${esc(item.set_path)}">${esc(item.set_id)}</td><td><strong>${esc(item.symbol)}</strong></td><td>${esc(item.timeframe || "—")}</td><td><strong>${number(item.lot, 2)}</strong></td><td>${esc(item.units)}</td><td>${number(item.net_profit_contribution)}</td><td>${number(item.standalone_valley_dd)}</td><td>${number(item.margin_required)}</td></tr>`).join("");
+  document.querySelector("#allocations").innerHTML = result.allocations.map(item => `<tr><td><input type="checkbox" data-prop-exclude="${esc(item.key)}" ${excluded.has(item.key) ? "checked disabled" : ""} aria-label="Excluir ${esc(item.set_id)}"></td><td>${esc(item.origin)}</td><td><span class="badge ${esc(item.source_kind)}">${esc(labels[item.source_kind] || item.source_kind)}</span></td><td title="${esc(item.set_path)}">${esc(shortSetName(item.set_id))}</td><td title="Origen ${esc(item.symbol)}"><strong>${esc(item.prop_symbol || item.symbol)}</strong></td><td>${esc(item.timeframe || "—")}</td><td><strong>${number(item.lot, 2)}</strong></td><td>${number(item.source_lot ?? item.lot, 2)}</td><td>${number(item.net_profit_contribution)}</td><td>${number(item.standalone_valley_dd)}</td><td>${number(item.margin_required)}</td></tr>`).join("");
   syncRepairButton();
   renderPortfolioContract(result);
+  renderPoolOutcome(result);
+  renderSearchComparison(result);
   renderAttemptAnalysis(result);
   renderPhaseTwo(result);
   renderPhaseThree(result);

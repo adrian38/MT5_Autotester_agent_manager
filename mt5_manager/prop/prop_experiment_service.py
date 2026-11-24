@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections import deque
+from collections import Counter, deque
 from pathlib import Path
 from typing import Any, Callable
 
@@ -17,10 +17,11 @@ from .prop_experiment_periods import (
     PHASE_THREE_FROM, PHASE_THREE_TO,
     PHASE_TWO_FROM, PHASE_TWO_TO, replay_window,
 )
-from .prop_experiment_pool import load_inventory, load_pool
+from .prop_experiment_pool import load_fx_reference, load_inventory, load_pool
 from .prop_experiment_reporting import attempt_analysis
 from .prop_profiles import EXPERIMENT_PROFILE_IDS, profile, profiles_payload
 from .prop_experiment_validation import NodeRequest, validate_portfolio
+from .prop_execution import ObservedUsdRates
 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -31,13 +32,13 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "include_manual_portfolios": True, "active_portfolios_only": False,
     "include_grids": False, "auto_continue": False,
 }
-RESULT_SCHEMA_VERSION = 9
+RESULT_SCHEMA_VERSION = 10
 
 REPLAY_WARNING = (
-    "La fase 1 usa sólo cierres OHLC desde 2025-01-01 hasta antes de 2026-06-01, "
-    "ordenados por hora; Every Tick/Final Tick 6M sólo es un veredicto de admisión. "
-    "El margen pico se estima con el apalancamiento de la prop. "
-    "La equity flotante, el rollover y la liquidación intradía requieren datos tick de la cuenta prop."
+    "Reproducción OHLC en USD con contratos The5ers y precios observados en aperturas y cierres. "
+    "Entre observaciones, incluido el rollover, se usa el último precio disponible. "
+    "El histórico conserva los costes de origen convertidos a USD. La ejecución con precios, "
+    "costes y equity tick a tick de The5ers queda pendiente de comprobar."
 )
 
 
@@ -99,7 +100,7 @@ def normalize_settings(raw: dict[str, Any], *, migrate: bool = False) -> dict[st
     }
 
 
-def _pool_payload(strategies, origins: dict[str, Any]) -> dict[str, Any]:
+def _pool_payload(strategies, origins: dict[str, Any], discards=None) -> dict[str, Any]:
     rows = {
         node_id: {
             "node_id": node_id, "broker": str(meta.get("broker") or node_id),
@@ -116,6 +117,8 @@ def _pool_payload(strategies, origins: dict[str, Any]) -> dict[str, Any]:
         field = {"candidate": "candidates", "seed": "seeds", "manual": "manual"}[item.source_kind]
         row[field] += 1
         row["total"] += 1
+    for (node, kind, reason), count in sorted((discards or {}).items()):
+        rows[node].setdefault("discarded", []).append({"source": kind, "reason": reason, "count": count})
     ordered = sorted(rows.values(), key=lambda row: (row["broker"], row["node_id"]))
     return {
         "strategies": sum(row["total"] for row in ordered),
@@ -303,9 +306,10 @@ class PropExperimentCoordinator:
             self.job["progress"] = "Deteniendo…"
         return self.state()
 
-    def _load_executable(self, settings: dict[str, Any]):
+    def _load_executable(self, settings: dict[str, Any], *, historical=False):
+        pool_settings = {**settings, 'historical': historical}
         pool, axis, warnings, origins = load_pool(
-            settings, self.source_factory, self._checkpoint, self.active_members_factory,
+            pool_settings, self.source_factory, self._checkpoint, self.active_members_factory,
             self.symbol_settings_factory,
         )
         if not pool or not axis.size:
@@ -315,14 +319,35 @@ class PropExperimentCoordinator:
         )
         if not executable:
             raise ValueError("El pool no contiene estrategias con riesgo cerrado medible")
-        return executable, axis, warnings + credibility_warnings, origins
+        executable_keys = {item.lab.key for item in executable}
+        rejected = Counter((item.lab.origin_node, item.source_kind, 'Grid deshabilitado')
+                           for item in pool if item.lab.key not in executable_keys)
+        rates = ObservedUsdRates(pool)
+        required = {item.prop_contract.quote for item in executable if item.prop_contract and not item.prop_contract.usd_base}
+        required.update(trade.currency for item in executable for trade in item.closed_trades if trade.currency)
+        missing = required - rates.samples.keys() - {'USD'}
+        if missing:
+            reference = load_fx_reference(self.source_factory, pool_settings, self._checkpoint, missing)
+            rates = ObservedUsdRates(pool, reference)
+        return executable, axis, warnings + credibility_warnings, origins, rates, rejected
+
+    def _phase_one_pool(self, settings, excluded=frozenset()):
+        executable, full_axis, warnings, origins, rates, discarded = self._load_executable(settings)
+        executable, axis, coverage_warnings = replay_window(
+            [item for item in executable if item.lab.key not in excluded], full_axis,
+            PHASE_ONE_FIRST_DAY, PHASE_ONE_LAST_DAY, rates=rates, discards=discarded,
+        )
+        eligible = []
+        for item in executable:
+            if item.lab.margin_per_unit <= settings['capital']:
+                eligible.append(item)
+            else:
+                discarded[item.lab.origin_node, item.source_kind, 'lote mínimo excede el capital'] += 1
+        return eligible, axis, warnings + coverage_warnings, origins, discarded
 
     def _run_build(self, settings: dict[str, Any]) -> None:
-        executable, full_axis, warnings, origins = self._load_executable(settings)
-        executable, axis, coverage_warnings = replay_window(
-            executable, full_axis, PHASE_ONE_FIRST_DAY, PHASE_ONE_LAST_DAY,
-        )
-        pool = _pool_payload(executable, origins)
+        executable, axis, warnings, origins, discarded = self._phase_one_pool(settings)
+        pool = _pool_payload(executable, origins, discarded)
         pool_count = pool["strategies"]
         seed_count = pool["seeds"]
         manual_count = pool["manual"]
@@ -341,7 +366,7 @@ class PropExperimentCoordinator:
             "result_schema_version": RESULT_SCHEMA_VERSION,
             "profile": profile(settings["profile_id"]).payload(), "settings": settings,
             "pool": pool,
-            "origins": origins, "warnings": warnings + coverage_warnings + [REPLAY_WARNING],
+            "origins": origins, "warnings": warnings + [REPLAY_WARNING],
             "axis": {"from": axis.days[0], "to": axis.days[-1], "days": axis.size},
             "phase_one": {"status": "completed", "from": PHASE_ONE_FROM, "to": PHASE_ONE_TO},
             "phase_two": {"status": "pending", "from": PHASE_TWO_FROM, "to": PHASE_TWO_TO},
@@ -368,11 +393,7 @@ class PropExperimentCoordinator:
         required = current_keys - newly_excluded
         if not required:
             raise ValueError("No se pueden excluir todas las estrategias del Portafolio Prop")
-        executable, full_axis, warnings, origins = self._load_executable(settings)
-        executable = [item for item in executable if item.lab.key not in excluded]
-        executable, axis, coverage_warnings = replay_window(
-            executable, full_axis, PHASE_ONE_FIRST_DAY, PHASE_ONE_LAST_DAY,
-        )
+        executable, axis, warnings, origins, discarded = self._phase_one_pool(settings, excluded)
         found = search(
             executable, axis, profile(settings["profile_id"]), settings,
             self._checkpoint, required_keys=required,
@@ -386,11 +407,11 @@ class PropExperimentCoordinator:
         updated.update({
             **{key: value for key, value in (self.result or {}).items()
                if key not in {"allocations", "evaluation", "portfolio", "attempt_analysis",
-                              "axis", "finished_at"}},
+                              "proposals_by_size", "axis", "finished_at"}},
             "revision": int((self.result or {}).get("revision") or 1) + 1,
             "previous_revision": previous,
-            "origins": origins, "warnings": warnings + coverage_warnings + [REPLAY_WARNING],
-            "pool": _pool_payload(executable, origins),
+            "origins": origins, "warnings": warnings + [REPLAY_WARNING],
+            "pool": _pool_payload(executable, origins, discarded),
             "excluded_keys": sorted(excluded),
             "axis": {"from": axis.days[0], "to": axis.days[-1], "days": axis.size},
             "phase_two": {
@@ -428,18 +449,19 @@ class PropExperimentCoordinator:
         save_json(self.result_path, updated)
 
     def _run_validate(self, settings: dict[str, Any]) -> None:
-        executable, full_axis, _warnings, _origins = self._load_executable(settings)
+        executable, full_axis, _warnings, _origins, rates, _discarded = self._load_executable(settings, historical=True)
         current_keys, units = self._current_keys_and_units()
         selected, axis, warnings = replay_window(
             [item for item in executable if item.lab.key in current_keys],
-            full_axis, PHASE_THREE_FROM, PHASE_THREE_TO,
+            full_axis, PHASE_THREE_FROM, PHASE_THREE_TO, rates=rates,
         )
         if len(selected) != len(current_keys):
             raise ValueError("Falta histórico verificable 2020–2024 de alguna estrategia: " + " ".join(warnings))
-        frozen_lots = {row["key"]: row["lot"] for row in self.result["allocations"]}
-        if any(round(item.lot_per_unit * units[item.lab.key], 8) != frozen_lots[item.lab.key]
+        frozen_lots = {row["key"]: (row["lot"], row["source_lot"]) for row in self.result["allocations"]}
+        if any((round(item.lot_per_unit * units[item.lab.key], 8),
+                round(item.source_lot_per_unit * units[item.lab.key], 8)) != frozen_lots[item.lab.key]
                for item in selected):
-            raise ValueError("Cambió el lote mínimo del broker desde la fase 1. Recalcula el portafolio.")
+            raise ValueError("Cambió el lote equivalente desde la fase 1. Recalcula el portafolio.")
         measured = evaluate(
             selected, units, axis, profile(settings["profile_id"]),
             float(settings["capital"]), 120,

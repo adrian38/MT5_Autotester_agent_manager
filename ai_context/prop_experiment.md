@@ -65,6 +65,11 @@ determinista. La composición devuelta es la mejor de las propuestas evaluadas.
 En fase 1 también cruza las dos mejores bases individuales, a lote bajo y
 medio, con el pool entero. Esto descubre estrategias que aportan días de
 beneficio donde la base está inactiva y quedan abajo en el ranking individual.
+La ampliación vuelve a recorrer el pool entero desde una composición de varios
+miembros. Prueba también añadir y reducir conjuntamente los lotes existentes,
+y continúa más allá de una ampliación que pierde contra el mejor resultado.
+El número de miembros queda fuera del ranking. El resultado guarda las
+propuestas comparadas, viables y la mejor puntuación observada para cada tamaño.
 
 El simulador exige cobertura de la ventana con las fechas declaradas de las
 pasadas que construyeron la serie. Un día laborable cubierto sin cierres
@@ -80,14 +85,14 @@ El resultado conserva una copia completa del perfil prop. Los perfiles son
 datos versionados en `prop_profiles.py`; cuando una firma cambie reglas se
 actualiza el perfil y la fecha, no se mueve lógica a UBS.
 
-La campaña procesa cierres netos por hora de reporte. Los cierres con misma
-marca de tiempo se agrupan. La prueba empieza sin posiciones arrastradas y,
-tras una pausa, el modelo deja de incorporar cierres de posiciones anteriores
-al siguiente día. Al tocar una barrera de pérdida se usa el saldo de la
-barrera. Esta aproximación carece del flotante tick a tick, del rollover real
-y de la liquidación a precio de mercado. La fase 1 no muestra la curva
-acumulada de la composición: el objetivo se presenta mediante la campaña de
-pruebas, su duración, sus resultados y el consumo mensual de bankroll.
+La campaña procesa aperturas y cierres netos por hora del informe. Las órdenes
+simultáneas comparten una comprobación de margen libre. La prueba empieza sin
+posiciones arrastradas. Una pausa liquida la posición simulada a los últimos
+precios observados y el siguiente día opera únicamente aperturas nuevas. La
+equity se estima en los eventos y al rollover, con la última observación de
+cada símbolo. El OHLC de origen aporta costes y horarios aproximados. Spreads,
+costes, tiempos de servidor y equity tick a tick de The5ers requieren la cuenta
+de destino. La fase 1 presenta la campaña, su duración y su coste mensual.
 
 ## Escrituras y ejecución
 
@@ -106,23 +111,43 @@ el registro del coordinador, dos delegaciones HTTP y el enlace de cabecera.
 
 La primera fase ya no se llama sólo «búsqueda»: su salida persistente es un
 **Portafolio Prop**, con composición, broker de origen y lote por estrategia.
-Cada broker aporta sus propios mínimos de volumen y nocionales. Para símbolos
-sin mínimo medido se usa el menor volumen positivo observado en la pasada.
-Un informe a lote fijo se reescala al mínimo disponible y el margen se estima
-con los tramos de la prop. La fase 2 recibe exactamente el lote calculado.
-La selección usa exclusivamente los cierres del OHLC OOS del periodo
+El lote The5ers y su equivalente en el broker representan la misma exposición.
+Se parte del contrato y del paso de lote de cada lado. La plata del caso del
+23-11-2026 usaba 1.000 onzas por lote en ICTrading y 5.000 en The5ers. En ese
+caso, 0,01 en The5ers equivale a 0,05 en ICTrading. Con los 0,56 lotes de la
+captura, una apertura a 117,685 exigía 13.180,72 USD a 1:25. El nocional EUR de
+la ficha de ICTrading describía otro contrato y otro precio.
+
+La unidad se escala sobre el volumen fijo observado. Los descartes por
+contrato, conversión o volumen quedan registrados por broker y fuente. El PnL
+de cada cierre se convierte a USD con la última cotización OHLC disponible de
+un cruce con USD. El informe aporta su divisa y el motor descarta conversiones
+sin una observación reciente. Las fichas de [The5ers](https://lp.the5ers.com/hub-assets-specifications/)
+y [RoboForex ECN](https://roboforex.com/help/faq/trading-vocabulary/what-is-a-lot/)
+son el respaldo del tamaño de contrato publicado. Las fichas del terminal de
+origen prevalecen cuando están disponibles.
+
+La selección usa exclusivamente aperturas y cierres del OHLC OOS del periodo
 `[2025-01-01, 2026-06-01)`. La reproducción empieza el primer día de mercado,
 2025-01-02; el corte 2026-06-01 es exclusivo y el último día de mercado exigido
 es 2026-05-29. Final Tick 6M decide la elegibilidad de las candidatas, pero su
-curva Every Tick no se incorpora a la simulación de fase 1. Para cada
-estrategia, el margen por unidad se multiplica por su máximo de posiciones
-simultáneas observado en ese OHLC; la suma conservadora de esos picos no puede
-superar el capital de la prueba con el apalancamiento del perfil prop.
+curva Every Tick no se incorpora a la simulación de fase 1. Cada tramo lee su
+informe OHLC directamente. Un IS solapado o ausente ya no descarta un OOS válido.
+`seed_scores.report_path` lo escribe el lanzador de seeds UBS con modelo 1.
+El histórico manual viene de la pasada generada para el portafolio manual o
+de su tramo OHLC existente. Se descarta cualquier modelo distinto de OHLC
+declarado en el informe.
+
+La suma conservadora de picos individuales acota la búsqueda de lotes. El
+margen de campaña se calcula con las posiciones abiertas, los precios
+observados y el apalancamiento The5ers. Una cartera con órdenes rechazadas o
+margen libre negativo observado queda fuera de la clasificación utilizable.
+Se muestran el margen utilizado máximo y el margen libre mínimo de la campaña.
 
 La fase 2 congela esa composición y ejecuta en el agente los dos modelos de la
 comprobación manual existente —OHLC M1 y Every Tick— entre 2025-11-20 y
-2026-11-20. El runtime sólo admite un lote común por trabajo, así que el manager
-agrupa por broker y lote; no se añadió ni se portó criterio al fork del nodo.
+2026-11-20. El runtime sólo admite un lote común por trabajo. El manager
+agrupa por broker y lote equivalente de origen para validar la misma exposición.
 Cada estrategia conserva las dos curvas para compararlas en la misma pantalla.
 
 La exclusión de esta pantalla es local al Portafolio Prop: no escribe la

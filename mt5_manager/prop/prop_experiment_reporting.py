@@ -89,6 +89,11 @@ def attempt_analysis(
     return {
         "calendar": _calendar_rows(axis.days, campaign.attempts),
         "monthly": monthly,
+        "execution": {
+            "margin_rejections": campaign.margin_rejections,
+            "peak_margin": campaign.peak_margin,
+            "minimum_free_margin": campaign.minimum_free_margin,
+        },
         "totals": {
             "started": len(campaign.attempts), "passed": campaign.passed,
             "failed": campaign.stop_outs, "in_progress": campaign.unresolved,

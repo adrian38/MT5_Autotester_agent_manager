@@ -15,11 +15,11 @@ NodeRequest = Callable[[str, str, str, dict[str, Any] | None], tuple[int, Any]]
 
 
 def _validation_groups(result: dict[str, Any]) -> list[tuple[str, float, list[dict[str, Any]]]]:
-    """Agrupa por broker y lote: el runtime admite un lote común por trabajo."""
+    """Agrupa por broker y lote equivalente de origen, que es el que ejecuta MT5."""
     grouped: dict[tuple[str, float], list[dict[str, Any]]] = defaultdict(list)
     for row in result.get("allocations") or []:
         node_id = str(row.get("origin_node") or "")
-        lot = round(float(row.get("lot") or 0.0), 8)
+        lot = round(float(row.get("source_lot", row.get("lot")) or 0.0), 8)
         if not node_id or lot <= 0:
             raise ValueError("El Portafolio Prop contiene una estrategia sin broker o lote")
         grouped[(node_id, lot)].append({

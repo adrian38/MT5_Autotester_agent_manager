@@ -293,7 +293,7 @@ class PropExperimentEngineTests(unittest.TestCase):
         incomplete = replace(item, coverage=())
         items, axis, warnings = replay_window([item, incomplete], LabAxis((day,), (0,), 1), day, day)
         self.assertEqual(len(items), 1)
-        self.assertIn("sin cobertura", warnings[0])
+        self.assertIn("cobertura OHLC incompleta", warnings[0])
         self.assertEqual(items[0].lab.margin_per_unit, 200.0)
         measured = evaluate(items, {"candidate": 1}, axis, profile("the5ers-growth"), 5000, 120)
         result = SearchResult({"candidate": 1}, measured, tuple(items))

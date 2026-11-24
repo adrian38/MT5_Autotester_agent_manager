@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from portfolio_manager.ubs_portfolio import MarginModel
+from portfolio_manager.ubs_portfolio import ClosedTrade
 from mt5_manager.prop import prop_experiment_pool as pool
+from mt5_manager.prop.prop_execution import destination_contract
 from tests.manager.test_experiment_lab import strategy
 
 
@@ -119,42 +122,37 @@ class PropExperimentPoolTests(unittest.TestCase):
             "final_tick_to_date": "2026.06.01",
         }]
         captured = []
-        with mock.patch.object(
-            pool, "load_robust_sets_from_rows",
-            side_effect=lambda rows, *_args, **_kwargs: (captured.extend(rows) or [], []),
-        ):
+        with mock.patch.object(pool.Path, "is_file", return_value=True), mock.patch.object(
+            pool, "_ohlc_report", side_effect=lambda path: captured.append(path) or SimpleNamespace(symbol="EURUSD", timeframe="H1"),
+        ), mock.patch.object(pool, "single_report_strategy", return_value=strategy("a", "EURUSD", {"2025-01-02": 1})) as build:
             pool._candidate_sets(
                 source,
                 {"include_candidates": True, "symbol_families": [], "disabled_symbols": []},
                 None, [], lambda _message: None,
             )
-        self.assertEqual(captured[0]["oos_report_path"], "C:/reports/oos_ohlc.html")
-        self.assertEqual(captured[0]["full_history_report_path"], "")
-        self.assertEqual(captured[0]["final_tick_report_path"], "")
+        self.assertEqual(captured, [Path("C:/reports/oos_ohlc.html")])
+        build.assert_called_once()
 
     def test_prop_leverage_replaces_the_origin_brokers_leverage(self) -> None:
-        with mock.patch.object(pool, "build_margin_model", return_value=MarginModel()):
-            model = pool._prop_margin_model(_Source(), {"profile_id": "the5ers-growth"})
-        self.assertEqual(model.account_leverage, 30.0)
-        self.assertEqual(model.leverage_for("EURUSD"), 30.0)
-        self.assertEqual(model.leverage_for("XAUUSD"), 25.0)
-        self.assertEqual(model.leverage_for("US500"), 25.0)
+        self.assertEqual(destination_contract("EURUSD").leverage, 30.0)
+        self.assertEqual(destination_contract("XAUUSD").leverage, 25.0)
+        self.assertEqual(destination_contract("US500").leverage, 25.0)
 
-    def test_origin_models_supply_each_strategys_margin_and_lot(self) -> None:
+    def test_origin_specs_supply_each_strategys_native_contract_separately(self) -> None:
+        stamp = datetime(2025, 1, 2)
+        deals = [ClosedTrade(stamp, stamp, 'XAGUSD', 0.01, 10)]
         rows = [
-            (strategy(node, "EURUSD", {"2025-01-02": 10.0}), node, node)
+            (replace(strategy(node, "XAGUSD", {"2025-01-02": 10.0}), closed_trades_2020_2026=deals), node, node)
             for node in ("IC", "AXI")
         ]
-        margins = {
-            "IC": MarginModel(default_leverage=25.0, symbol_min_lot={"EURUSD": 0.1},
-                              symbol_notional={"EURUSD": 250.0}),
-            "AXI": MarginModel(default_leverage=25.0, symbol_min_lot={"EURUSD": 1.0},
-                               symbol_notional={"EURUSD": 1250.0}),
+        specs = {
+            node: ({'XAGUSD': {'contract_size': contract, 'volume_min': 0.01, 'volume_step': 0.01}}, node, '')
+            for node, contract in {'IC': 1000, 'AXI': 5000}.items()
         }
-        items, _, _, _ = pool._assemble_pool(rows, margins, set(), set(), [], {}, lambda _: None)
+        items, _, _, _ = pool._assemble_pool(rows, set(), set(), [], {}, lambda _: None, specs)
         self.assertEqual(
-            {item.lab.origin: (item.lot_per_unit, item.lab.margin_per_unit) for item in items},
-            {"IC": (0.1, 10.0), "AXI": (1.0, 50.0)},
+            {item.lab.origin: (item.source_volume.contract, item.prop_contract.volume.contract) for item in items},
+            {"IC": (1000, 5000), "AXI": (5000, 5000)},
         )
 
     def test_active_filter_is_independent_from_the_selected_sources(self) -> None:

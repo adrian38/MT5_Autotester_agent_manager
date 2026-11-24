@@ -103,6 +103,22 @@ class CompositionSearch:
                     if 0 < units <= maximum:
                         yield {**remaining, key: units}
 
+    def add_with_rebalanced_lots(self, current, ranked):
+        """Reserve margin while testing an addition, even when every single change loses."""
+        bases = [current]
+        for numerator in (3, 2):
+            base = {key: max(1, lots * numerator // 4) for key, lots in current.items()}
+            if base not in bases:
+                bases.append(base)
+        for base in bases:
+            for key, hint in ranked:
+                if key in base:
+                    continue
+                maximum = self.capacity(key, base)
+                if maximum:
+                    for lots in sorted({1, min(hint, maximum)}):
+                        yield {**base, key: lots}
+
     def improve(self, seed, ranked):
         current = seed
         while True:
@@ -112,6 +128,38 @@ class CompositionSearch:
             if best == current:
                 return current
             current = best
+
+    def grow(self, best, ranked):
+        """Give larger portfolios a start even if their parents scored below the winner."""
+        self.stage = 'Búsqueda de composiciones de más estrategias'
+        pair = max((key for key in self.scores if len(key) == 2), key=lambda key: self.scores[key].score,
+                   default=None)
+        frontier = best if len(best) >= 2 or pair is None else dict(pair)
+        without_improvement = 0
+        while without_improvement < 2:
+            frontier = max(self.add_with_rebalanced_lots(frontier, ranked), key=self.rank, default=None)
+            if frontier is None:
+                break
+            if self.rank(frontier) > self.rank(best):
+                best = frontier
+                without_improvement = 0
+            else:
+                without_improvement += 1
+        return self.improve(best, ranked[:24])
+
+    def summary(self):
+        by_size = {}
+        for key, result in self.scores.items():
+            count, feasible, best = by_size.get(len(key), (0, 0, None))
+            if result.margin_feasible and (best is None or result.score > best.score):
+                best = result
+            by_size[len(key)] = count + 1, feasible + int(result.margin_feasible), best
+        return tuple({
+            'members': size, 'evaluated': count, 'feasible': feasible,
+            'best_passed': best.passed if best else None,
+            'best_median_days': best.median_days if best and best.passed else None,
+            'best_pass_rate': best.pass_rate if best else None,
+        } for size, (count, feasible, best) in sorted(by_size.items()))
 
     def run(self):
         base = dict.fromkeys(sorted(self.required), 1)
@@ -142,4 +190,5 @@ class CompositionSearch:
                 refined.add(signature)
                 if self.rank(candidate) > self.rank(best):
                     best = candidate
+        best = self.grow(best, ranked)
         return best, self.measure(best)

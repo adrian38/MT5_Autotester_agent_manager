@@ -33,7 +33,7 @@
         <label>Coste por prueba (€)<input id="evaluation_fee_eur" type="number" min="0.01" step="0.01"></label>
         <label>Apalancamiento por familia<input id="account_leverage" type="text" readonly></label>
       </div>
-      <p class="history-note"><strong>Fase 1:</strong> construye el Portafolio Prop con estrategias y lotes usando 01-01-2025 → 30-06-2026. Optimiza pruebas consecutivas pasadas y, a igualdad de aprobaciones, el menor tiempo para aprobar.</p>
+      <p class="history-note"><strong>Fase 1</strong> · OHLC desde el 01-01-2025 hasta el 31-05-2026 inclusive. Busca el mayor número de aprobaciones consecutivas con lotes ejecutables. Si empatan, gana la menor mediana de días.</p>
       <div id="profile-detail" class="profile-detail"></div>
       <div class="funnel-grid">
         <section>
@@ -85,6 +85,14 @@
         <div id="broker-pool-metrics" class="metrics empty">Calculando inventario utilizable…</div>
       </section>
       <div id="result-contract" class="metrics contract-metrics" hidden></div>
+      <details id="pool-outcome" hidden>
+        <summary>Pool reproducido y descartes por broker</summary>
+        <div id="pool-outcome-rows"></div>
+      </details>
+      <details id="search-comparison" hidden>
+        <summary>Composiciones evaluadas por número de estrategias</summary>
+        <div class="table-wrap"><table><thead><tr><th>Miembros</th><th>Comparadas</th><th>Con margen</th><th>Máximo de aprobaciones</th><th>Mediana de días</th><th>Tasa de aprobación</th></tr></thead><tbody id="search-comparison-rows"></tbody></table></div>
+      </details>
       <div id="warnings"></div>
       <section id="attempt-analysis" class="attempt-analysis" hidden>
         <div class="comparison-head"><div><p class="eyebrow">BANKROLL MENSUAL</p><h3>Pruebas financiadas y calendario</h3></div><label>Mes<select id="attempt-month"></select></label></div>
@@ -105,7 +113,7 @@
         <div id="phase-three-chart" class="audit-analysis-chart"></div>
       </section>
       <div id="allocation-table" class="table-wrap universe-table-wrap portfolio-members-wrap" hidden><table class="universe-table portfolio-members">
-        <thead><tr><th>Excluir</th><th>Origen</th><th>Tipo</th><th>Estrategia</th><th>Símbolo</th><th>TF</th><th>Lote</th><th>Unid.</th><th>Net histórico</th><th>DD riesgo</th><th>Margen pico OHLC</th></tr></thead>
+        <thead><tr><th>Excluir</th><th>Origen</th><th>Tipo</th><th>Estrategia</th><th>Símbolo</th><th>TF</th><th>Lote The5ers</th><th>Lote origen</th><th>Neto cerrado USD</th><th>DD cerrado USD</th><th>Pico individual USD</th></tr></thead>
         <tbody id="allocations"></tbody>
       </table><div class="repair-bar"><span>Las exclusiones pertenecen a este Portafolio Prop; no cambian la memoria UBS del broker.</span><button id="repair-prop" class="secondary" disabled>Excluir y arreglar composición</button></div></div>
     </section>

@@ -65,8 +65,8 @@ def period_report_from_strategy_report(report: StrategyReport, period_name: str)
             symbol=report.symbol,
             volume=trade.size,
             profit=trade.profit_loss,
-            open_price=trade.open_price,
-            close_price=trade.close_price,
+            open_price=trade.open_price, close_price=trade.close_price,
+            side=trade.trade_type, currency=report.currency,
         )
         for trade in report.trades
     ]

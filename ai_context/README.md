@@ -317,7 +317,8 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   páginas compartan JavaScript.
 - `prop_experiment.md`: laboratorio aislado para evaluaciones prop; añade las
   seeds UBS con Final Tick 6M y las estrategias manuales al pool actual, aplica
-  aparte el filtro de portafolios activos y conserva el plan de validación v1.
+  aparte el filtro de portafolios activos y registra lotes equivalentes, margen
+  libre y resultados por tamaño de composición.
 - `experiment_dev_remote_read.md`: cómo «Experimenta» lee AXI y RoboForex desde
   `dev`, que corre en Docker en la cuenta de ICTrading, sin abrir sus operaciones.
 - `dev_branch_test_paths.md`: por qué en la rama `dev` la ruta del nodo ICTrading

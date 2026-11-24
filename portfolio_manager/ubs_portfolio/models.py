@@ -84,6 +84,8 @@ class ClosedTrade:
     swap: float = 0.0
     open_price: float | None = None
     close_price: float | None = None
+    side: str = ""
+    currency: str = ""
 
     @property
     def net_profit(self) -> float:

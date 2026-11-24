@@ -48,6 +48,20 @@ class MonthlyCampaign:
         return sum(not item.result.completed for item in self.attempts)
 
     @property
+    def margin_rejections(self) -> int:
+        return sum(item.result.margin_rejections for item in self.attempts)
+
+    @property
+    def peak_margin(self) -> float | None:
+        return max((item.result.peak_margin for item in self.attempts
+                    if item.result.peak_margin is not None), default=None)
+
+    @property
+    def minimum_free_margin(self) -> float | None:
+        return min((item.result.minimum_free_margin for item in self.attempts
+                    if item.result.minimum_free_margin is not None), default=None)
+
+    @property
     def mean_peak_progress_pct(self) -> float:
         values = [min(item.result.peak_progress_pct, 100.0) for item in self.attempts]
         return statistics.fmean(values) if values else 0.0

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from collections import Counter
 from datetime import date, timedelta
 from math import isfinite
 from typing import Sequence
 
 from ..experiment.experiment_lab import LabAxis, valley_dd
 from .prop_experiment_engine import PropStrategy
+from .prop_execution import ObservedUsdRates, equivalent_volume_unit
+from .prop_position_book import PositionEvent, PropPosition
 from .the5ers_hyper_growth_engine import GrowthClose
 
 
@@ -94,30 +97,108 @@ def _replay_strategy(item: PropStrategy, positions: dict[str, int]) -> PropStrat
 
 
 def replay_window(
-    strategies: Sequence[PropStrategy], axis: LabAxis, start: str, end: str,
+    strategies: Sequence[PropStrategy], axis: LabAxis, start: str, end: str, *,
+    rates: ObservedUsdRates | None = None, discards: Counter | None = None,
 ) -> tuple[list[PropStrategy], LabAxis, list[str]]:
     """Exige las mismas fechas cubiertas antes de comparar composiciones."""
     calendar = _calendar_axis(axis.days, start, end)
     positions = {day: index for index, day in enumerate(calendar.days)}
     replayable = []
-    incomplete = unusable = 0
+    rejected = Counter()
     for item in strategies:
         if not _covered(item.coverage or (), calendar.days):
-            incomplete += 1
-            continue
-        if not isfinite(item.lab.margin_per_unit) or item.lab.margin_per_unit <= 0:
-            unusable += 1
-            continue
-        candidate = _replay_strategy(item, positions)
-        if candidate is None:
-            unusable += 1
+            reason = 'cobertura OHLC incompleta'
+        elif rates is not None:
+            candidate, reason = _replay_prop_strategy(item, positions, rates)
+        elif not isfinite(item.lab.margin_per_unit) or item.lab.margin_per_unit <= 0:
+            reason = 'margen sin evidencia'
+        else:
+            candidate = _replay_strategy(item, positions)
+            reason = '' if candidate else 'operaciones sin fecha o volumen'
+        if reason:
+            rejected[item.lab.origin_node, item.source_kind, reason] += 1
         else:
             replayable.append(candidate)
-    warnings = []
-    if incomplete:
-        warnings.append(f"Prop: {incomplete} estrategias sin cobertura demostrada del {start} al {end}.")
-    if unusable:
-        warnings.append(f"Prop: {unusable} estrategias sin operaciones fechadas o margen calculable.")
+    if discards is not None:
+        discards.update(rejected)
+    warnings = [f'{node} · {kind}: {count} fuera por {reason}.'
+                for (node, kind, reason), count in sorted(rejected.items())]
     if not replayable:
         raise ValueError("No hay estrategias con cobertura completa y operaciones reproducibles. " + " ".join(warnings))
     return replayable, calendar, warnings
+
+
+def _prop_position(item, trade, lots, rates, close_in_window):
+    source_lot, target_lot = lots
+    contract = item.prop_contract
+    prices = (trade.open_price, trade.close_price if close_in_window else trade.open_price)
+    if any(price is None or not isfinite(price) or price <= 0 for price in prices):
+        return None, 'precio de apertura o cierre ausente'
+    direction = {'buy': 1, 'sell': -1}.get(trade.side.casefold())
+    if not direction:
+        return None, 'dirección de la operación ausente'
+    if contract.usd_base:
+        open_rate, close_rate = (1 / price for price in prices)
+    elif contract.quote == 'USD':
+        open_rate = close_rate = 1.0
+    else:
+        open_rate = rates.at(contract.quote, trade.open_time)
+        close_rate = rates.at(contract.quote, trade.close_time) if close_in_window else open_rate
+    report_rate = rates.at(trade.currency, trade.close_time) if close_in_window else 1.0
+    if not all((open_rate, close_rate, report_rate)):
+        return None, 'conversión USD sin cotización OHLC reciente'
+    return PropPosition(
+        contract.symbol, trade.open_time, trade.close_time, *prices,
+        open_rate, close_rate, target_lot * contract.volume.contract,
+        direction, contract.leverage, contract.usd_base,
+        trade.net_profit * source_lot / trade.volume * report_rate if close_in_window else 0.0,
+    ), ''
+
+
+def _observed_peak_margin(events):
+    margin = peak = 0.0
+    for event in events:
+        position = event.position
+        bound = max(position.margin(position.open_price, position.open_usd_rate, 1),
+                    position.margin(position.close_price, position.close_usd_rate, 1))
+        margin += bound if event.opening else -bound
+        peak = max(peak, margin)
+    return peak
+
+
+def _replay_prop_strategy(item, days, rates):
+    if item.prop_contract is None:
+        return None, 'especificación del símbolo en The5ers sin verificar'
+    if item.source_volume is None:
+        return None, 'contrato o paso de lote del broker de origen sin verificar'
+    if any(trade.open_time is None for trade in item.closed_trades
+           if trade.close_time.date().isoformat() in days):
+        return None, 'operación sin hora de apertura'
+    trades = [trade for trade in item.closed_trades if trade.open_time and
+              trade.open_time.date().isoformat() in days]
+    volumes = {round(trade.volume, 8) for trade in trades}
+    if len(volumes) != 1 or next(iter(volumes), 0) <= 0:
+        return None, 'volumen variable o sin aperturas verificables en la ventana'
+    lots = equivalent_volume_unit(item.source_volume, item.prop_contract.volume)
+    values = [0.0] * len(days)
+    by_day = {}
+    for trade in trades:
+        closed = days.get(trade.close_time.date().isoformat())
+        position, reason = _prop_position(item, trade, lots, rates, closed is not None)
+        if reason:
+            return None, reason
+        opened = days[position.opened.date().isoformat()]
+        by_day.setdefault(opened, []).append(PositionEvent(position.opened, position, True))
+        if closed is not None:
+            by_day.setdefault(closed, []).append(PositionEvent(position.closed, position, False))
+            values[closed] += position.closed_pnl
+    events = {day: tuple(sorted(rows, key=lambda event: (event.time, not event.opening)))
+              for day, rows in sorted(by_day.items())}
+    margin = _observed_peak_margin(event for rows in events.values() for event in rows)
+    series = tuple(values)
+    return replace(
+        item, series=series, closed_trades=(), lot_per_unit=lots[1], source_lot_per_unit=lots[0],
+        position_events=events,
+        lab=replace(item.lab, series=series, net=sum(series), valley_dd=valley_dd(series),
+                    active_days=len(by_day), margin_per_unit=margin),
+    ), ''

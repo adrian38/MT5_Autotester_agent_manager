@@ -8,6 +8,7 @@ from datetime import datetime
 from itertools import groupby
 from typing import Sequence
 
+from .prop_position_book import PositionBook, PositionEvent
 from .the5ers_hyper_growth_rules import HYPER_GROWTH_5K, HyperGrowthRules
 
 
@@ -26,6 +27,7 @@ class GrowthDay:
     midnight_equity: float | None = None
     date: str = ""
     closes: tuple[GrowthClose, ...] | None = None
+    positions: tuple[PositionEvent, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,9 @@ class GrowthAttempt:
     peak_progress_pct: float
     daily_pauses: int
     pause_indices: tuple[int, ...] = ()
+    margin_rejections: int = 0
+    peak_margin: float | None = None
+    minimum_free_margin: float | None = None
 
     @property
     def completed(self) -> bool:
@@ -110,6 +115,8 @@ def simulate_evaluation(
     if start < 0 or start >= len(series):
         raise ValueError("El inicio de la evaluación queda fuera del histórico")
     end = len(series) if max_days is None else min(len(series), start + max(max_days, 1))
+    if _day(series[start]).positions is not None:
+        return _simulate_positions(series, start, end, rules)
     balance = rules.initial_balance
     peak = 0.0
     pauses = []
@@ -135,6 +142,30 @@ def simulate_evaluation(
             )
     reason = "history_end" if end == len(series) else "observation_window"
     return GrowthAttempt(False, reason, start, end, end - start, balance, peak, len(pauses), tuple(pauses))
+
+
+def _simulate_positions(series, start: int, end: int, rules: HyperGrowthRules) -> GrowthAttempt:
+    book = PositionBook(rules.initial_balance)
+    pauses = []
+    peak = 0.0
+    reason = 'history_end' if end == len(series) else 'observation_window'
+    for cursor in range(start, end):
+        days = cursor - start + 1
+        may_pass = days >= rules.minimum_days
+        event, highest = book.trade_day(series[cursor].positions, rules, may_pass)
+        peak = max(peak, _progress(highest, rules))
+        if event == 'stop_out':
+            reason = event
+            break
+        if event == 'daily_pause':
+            pauses.append(cursor)
+        if may_pass and book.balance + 1e-9 >= rules.target_balance:
+            reason = 'passed'
+            break
+    return GrowthAttempt(
+        reason == 'passed', reason, start, cursor + 1, days, book.balance,
+        peak, len(pauses), tuple(pauses), book.rejections, book.peak_margin, book.minimum_free,
+    )
 
 
 def simulate_campaign(

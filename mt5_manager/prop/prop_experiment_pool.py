@@ -3,26 +3,26 @@
 from __future__ import annotations
 
 import sqlite3
+import json
 import re
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
+from portfolio_manager.mt5_report import parse_report
 from portfolio_manager.ubs_portfolio import (
     MarginModel,
     RobustStrategySet,
-    load_robust_sets_from_rows,
-    load_symbol_notional,
     portfolio_group_key,
+    portfolio_symbol_key,
 )
 
 from ..experiment import experiment_lab as lab
-from ..experiment.experiment_seed_sets import accepted_seed_rows, load_seed_sets
+from ..experiment.experiment_seed_sets import accepted_seed_rows, load_seed_sets, single_report_strategy
 from ..portfolio.portfolio_coordinator_core import _relocated_member
 from ..portfolio.portfolio_identity import _allocation_source_rows
-from ..portfolio.portfolio_service import build_margin_model, cached_report
 from .prop_experiment_engine import PropStrategy, executable_pool, set_path_is_grid
-from .prop_profiles import profile
+from .prop_execution import destination_contract, source_volume_spec
 
 
 def _set_name(value: Any) -> str:
@@ -61,20 +61,44 @@ def _row_family_allowed(row: dict[str, Any], settings: dict[str, Any]) -> bool:
     )
 
 
-def _candidate_ohlc_row(row: dict[str, Any]) -> dict[str, Any]:
-    """Conserva la elegibilidad FT6M, pero entrega sólo IS + OOS OHLC al cargador."""
-    return {
-        **row,
-        "full_history_report_path": "",
-        "final_tick_report_path": "",
-        "real_tick_report_path": "",
-        "final_tick_to_date": "",
-    }
+def _ohlc_report(path):
+    # Thousands of distinct passes belong to this job. Retain only their
+    # reconstructed closed trades and let the HTML parser release raw deals.
+    report = parse_report(path)
+    model = str(getattr(report, 'model', '') or '').casefold()
+    if model and model != '1' and 'ohlc' not in model:
+        raise ValueError(f'Modelo incompatible con OHLC M1: {model}')
+    return report
 
 
-def _manual_ohlc_row(row: dict[str, Any]) -> dict[str, Any]:
-    """Un manual conserva su histórico OHLC y nunca aporta una cola Every Tick."""
-    return {**row, "final_tick_report_path": "", "real_tick_report_path": ""}
+def _ohlc_segment(settings):
+    return 'is_report_path' if settings.get('historical') else 'oos_report_path'
+
+
+def _read_ohlc_sets(rows, path_key, source_label, warnings, checkpoint):
+    """Use the requested OHLC pass directly, without validating an unrelated window."""
+    loaded = []
+    errors = []
+    for index, row in enumerate(rows, 1):
+        if index % 50 == 0:
+            checkpoint(f'{source_label} · cargando OHLC {index}/{len(rows)}')
+        try:
+            path = row.get(path_key) or row.get('single_pass_report_path')
+            set_path = str(row.get('set_path') or '')
+            if not path or not set_path or not Path(path).is_file():
+                raise ValueError('falta el informe OHLC del tramo')
+            report = _ohlc_report(Path(path))
+            symbol = row.get('executable_symbol') or row.get('target_symbol') or row.get('symbol')
+            if symbol and portfolio_symbol_key(symbol) != portfolio_symbol_key(report.symbol):
+                raise ValueError(f'símbolo OHLC {report.symbol} distinto de {symbol}')
+            candidate = single_report_strategy(report, row, set_path, set_path, 'accepted', report_path=path)
+            loaded.append(replace(candidate, timeframe=str(row.get('period') or report.timeframe)))
+        except (OSError, ValueError) as exc:
+            errors.append(f"{Path(str(row.get('set_path') or '')).name}: {exc}")
+    if errors:
+        warnings.append(f'{source_label}: {len(errors)}/{len(rows)} informes OHLC omitidos. '
+                        + ' | '.join(errors[:5]))
+    return loaded
 
 
 def _allowed_names(
@@ -101,13 +125,9 @@ def _candidate_sets(
     if allowed is not None:
         rows = [row for row in rows if _set_name(row.get("set_path")) in allowed]
     total = len(rows)
-    rows = [_candidate_ohlc_row(row) for row in rows if _row_family_allowed(row, settings)]
+    rows = [row for row in rows if _row_family_allowed(row, settings)]
     checkpoint(f"{source.broker}: cargando {len(rows)} candidatas de {total}")
-    loaded, notes = load_robust_sets_from_rows(
-        rows, [], parse=cached_report,
-        progress=lambda message: checkpoint(f"{source.broker} · {message}"),
-    )
-    warnings.extend(f"{source.broker}: {note}" for note in notes)
+    loaded = _read_ohlc_sets(rows, _ohlc_segment(settings), f'{source.broker} · candidatas', warnings, checkpoint)
     return loaded, total, len(rows)
 
 
@@ -119,7 +139,7 @@ def _seed_sets(
         return [], 0
     checkpoint(f"{source.broker}: leyendo seeds con Final Tick 6M aceptado")
     loaded, notes, total = load_seed_sets(
-        source, parse=cached_report, limit=0,
+        source, parse=_ohlc_report, limit=0,
         require_final_tick_6m=True, allowed_set_names=allowed,
     )
     loaded = _filter_symbol_families(loaded, settings)
@@ -148,14 +168,31 @@ def _manual_sets(
 ) -> tuple[list[Any], int]:
     if not settings["include_manual_portfolios"]:
         return [], 0
-    rows = [_manual_ohlc_row(row) for row in _manual_member_rows(source, allowed)]
+    rows = _manual_member_rows(source, allowed)
     checkpoint(f"{source.broker}: cargando {len(rows)} estrategias de portafolios manuales")
-    loaded, notes = load_robust_sets_from_rows(
-        rows, [], parse=cached_report,
-        progress=lambda message: checkpoint(f"{source.broker} · {message}"),
-    )
-    warnings.extend(f"{source.broker}: {note}" for note in notes)
+    loaded = _read_ohlc_sets(rows, _ohlc_segment(settings), f'{source.broker} · manuales', warnings, checkpoint)
     return loaded, len(rows)
+
+
+def load_fx_reference(source_factory, settings, checkpoint, currencies):
+    """Read only OHLC FX observations needed to price another selected family in USD."""
+    references = []
+    pairs = {f'{currency}USD' for currency in currencies} | {f'USD{currency}' for currency in currencies}
+    for node in settings['source_nodes']:
+        try:
+            source = source_factory(node)
+            rows = source.candidate_rows(include_quarantined=False)
+        except (OSError, ValueError, sqlite3.Error):
+            continue
+        selected = {pair: [] for pair in pairs}
+        for row in rows:
+            symbol = portfolio_symbol_key(row.get('executable_symbol') or row.get('target_symbol') or row.get('symbol'))
+            if symbol in selected and len(selected[symbol]) < 12:
+                selected[symbol].append(row)
+        read = _read_ohlc_sets([row for group in selected.values() for row in group], _ohlc_segment(settings),
+                              f'{source.broker} · cotizaciones USD', [], checkpoint)
+        references.extend(trade for item in read for trade in item.closed_trades_2020_2026)
+    return references
 
 
 def _filter_symbol_families(items: list[Any], settings: dict[str, Any]) -> list[Any]:
@@ -245,24 +282,6 @@ def load_inventory(
     return {"strategies": sum(row["total"] for row in rows), "by_broker": rows}
 
 
-def _prop_margin_model(source: Any, settings: dict[str, Any]) -> Any:
-    prop_profile = profile(str(settings["profile_id"]))
-    leverage = prop_profile.account_leverage
-    base = build_margin_model(source, {
-        "margin_profile": source.broker.lower(), "account_leverage": leverage,
-    })
-    normalization = getattr(source, "normalization", None)
-    fallback_notional, _groups, origin = load_symbol_notional(normalization) if normalization else ({}, {}, "")
-    return replace(
-        base, profile=prop_profile.profile_id, account_leverage=leverage,
-        group_leverage=dict(prop_profile.leverage_by_family),
-        symbol_margin={}, max_product_leverage={},
-        symbol_notional={**fallback_notional, **base.symbol_notional},
-        group_notional={}, notional_source=base.notional_source or origin,
-        stock_leverage=leverage, default_leverage=leverage,
-    )
-
-
 def load_origin(
     source: Any, node_id: str, settings: dict[str, Any], warnings: list[str],
     checkpoint: Callable[[str], None], allowed: set[str] | None,
@@ -322,7 +341,7 @@ def load_pool(
     manual_ids: set[str] = set()
     warnings: list[str] = []
     origins: dict[str, Any] = {}
-    margins: dict[str, MarginModel] = {}
+    volume_specs = {}
     for node_id in settings["source_nodes"]:
         try:
             source = source_factory(node_id)
@@ -340,7 +359,7 @@ def load_pool(
             items, ids, manual, meta = load_origin(
                 source, node_id, origin_settings, warnings, checkpoint, allowed,
             )
-            margins[node_id] = _prop_margin_model(source, settings)
+            volume_specs[node_id] = _source_specs(source)
             loaded.extend(items)
             seed_ids.update(ids)
             manual_ids.update(manual)
@@ -353,35 +372,46 @@ def load_pool(
             }
     if not loaded:
         raise ValueError("Ningún broker devolvió estrategias cargables")
-    return _assemble_pool(loaded, margins, seed_ids, manual_ids, warnings, origins, checkpoint)
+    return _assemble_pool(loaded, seed_ids, manual_ids, warnings, origins, checkpoint, volume_specs)
 
 
-def _assemble_pool(loaded, margins, seed_ids, manual_ids, warnings, origins, checkpoint):
+def _source_specs(source):
+    path = getattr(source, 'symbol_specs', None)
+    try:
+        raw = json.loads(path.read_text(encoding='utf-8-sig')) if path else {}
+        rows = raw.get('symbols', {})
+    except (OSError, ValueError, AttributeError):
+        rows = {}
+    rows = rows if isinstance(rows, dict) else {}
+    return ({str(symbol).upper(): spec for symbol, spec in rows.items() if isinstance(spec, dict)},
+            source.broker, getattr(source, 'account', ''))
+
+
+def _assemble_pool(loaded, seed_ids, manual_ids, warnings, origins, checkpoint, volume_specs):
     pool, axis, notes = lab.build_lab_strategies(
-        loaded, margin_model=next(iter(margins.values())), portable_symbols=frozenset(),
-        window_months=0, progress=checkpoint, margin_by_node=margins,
+        loaded, margin_model=MarginModel(), portable_symbols=frozenset(),
+        window_months=0, progress=checkpoint,
     )
     warnings.extend(notes)
     seed_keys = {item.key for item in pool if item.set_id in seed_ids}
     manual_keys = {item.key for item in pool if item.set_id in manual_ids}
     evidence = {(node, item.set_id): item for item, _broker, node in loaded}
     executable = executable_pool(pool, seed_keys, manual_keys)
-    return [_with_evidence(item, evidence, margins) for item in executable], axis, warnings, origins
+    return [_with_evidence(item, evidence, volume_specs) for item in executable], axis, warnings, origins
 
 
 def _with_evidence(
     item: PropStrategy, evidence: dict[tuple[str, str], RobustStrategySet],
-    margins: dict[str, MarginModel],
+    volume_specs: dict,
 ) -> PropStrategy:
     node = item.lab.origin_node
     raw = evidence[node, item.lab.set_id]
-    model = margins[node]
-    symbol = item.lab.symbol_key
-    lot = model.symbol_min_lot.get(symbol, 0.0)
-    margin = item.lab.margin_per_unit
-    if model.notional_for(item.lab.symbol) is None and symbol not in model.symbol_contract_size:
-        margin = float("inf")
+    contracts = [source_volume_spec(trade_symbol, *volume_specs[node]) for trade_symbol in {
+        trade.symbol for trade in raw.closed_trades_2020_2026
+    }] if node in volume_specs else []
+    source_volume = contracts[0] if contracts and all(spec == contracts[0] for spec in contracts) else None
     return replace(
-        item, lot_per_unit=lot, lab=replace(item.lab, margin_per_unit=margin),
+        item, lab=replace(item.lab, margin_per_unit=float('inf')),
         closed_trades=tuple(raw.closed_trades_2020_2026), coverage=raw.report_coverage,
+        source_volume=source_volume, prop_contract=destination_contract(item.lab.symbol),
     )

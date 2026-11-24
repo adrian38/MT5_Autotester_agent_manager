@@ -14,6 +14,8 @@ from portfolio_manager.grid_set import set_file_has_enabled_grid
 from portfolio_manager.ubs_portfolio import ClosedTrade
 
 from ..experiment.experiment_lab import LabAxis, LabStrategy
+from .prop_execution import PropContract, VolumeSpec
+from .prop_position_book import PositionEvent
 from .prop_profiles import PropPhase, PropProfile
 from .prop_experiment_search import CompositionSearch
 from .the5ers_hyper_growth_budget import simulate_monthly_campaign
@@ -31,6 +33,10 @@ class PropStrategy:
     coverage: tuple[tuple[str, str], ...] | None = None
     closed_trades: tuple[ClosedTrade, ...] = ()
     closes: dict[int, tuple[GrowthClose, ...]] | None = None
+    source_volume: VolumeSpec | None = None
+    prop_contract: PropContract | None = None
+    source_lot_per_unit: float = 0.0
+    position_events: dict[int, tuple[PositionEvent, ...]] | None = None
 
 
 @dataclass(frozen=True)
@@ -49,11 +55,18 @@ class Evaluation:
     median_days: float
     mean_peak_progress_pct: float
     failures: dict[str, int]
+    margin_rejections: int = 0
+    minimum_free_margin: float | None = None
+    peak_margin: float | None = None
 
     @property
-    def score(self) -> tuple[int, float, float, float]:
+    def margin_feasible(self) -> bool:
+        return self.margin_rejections == 0 and (self.minimum_free_margin or 0.0) >= -1e-9
+
+    @property
+    def score(self) -> tuple[bool, int, float, float, float]:
         days = self.median_days if self.median_days else 1e9
-        return self.passed, -days, self.pass_rate, self.mean_peak_progress_pct
+        return self.margin_feasible, self.passed, -days, self.pass_rate, self.mean_peak_progress_pct
 
 
 @dataclass(frozen=True)
@@ -61,6 +74,7 @@ class SearchResult:
     allocations: dict[str, int]
     evaluation: Evaluation
     strategies: tuple[PropStrategy, ...]
+    proposals_by_size: tuple[dict[str, Any], ...] = ()
 
 
 def set_path_is_grid(value: Any) -> bool:
@@ -144,7 +158,12 @@ def growth_series(
     strategies: Sequence[PropStrategy], allocations: dict[str, int], axis: LabAxis,
 ) -> list[float] | list[GrowthDay]:
     """Combina cierres simultáneos en un mismo calendario, conservando su orden."""
-    selected = [(item, allocations[item.lab.key]) for item in strategies if allocations.get(item.lab.key)]
+    selected = [(item, allocations[item.lab.key]) for item in sorted(strategies, key=_strategy_key)
+                if allocations.get(item.lab.key)]
+    if selected and all(item.position_events is not None for item, _ in selected):
+        return _position_days(selected, axis)
+    if any(item.position_events is not None for item, _ in selected):
+        raise ValueError("Faltan aperturas verificables para parte de la composición Prop")
     if not selected or any(item.closes is None for item, _units in selected):
         return combined_series(strategies, allocations)
     days: dict[int, list[Iterator[GrowthClose]]] = {}
@@ -155,6 +174,35 @@ def growth_series(
         GrowthDay(0.0, date=day, closes=_merge_day(days.get(index, [])))
         for index, day in enumerate(axis.days)
     ]
+
+
+def _position_days(selected, axis):
+    days = {}
+    for item, units in selected:
+        for index, events in item.position_events.items():
+            days.setdefault(index, []).append(_scale_events(events, units))
+    return [GrowthDay(0.0, date=day, positions=_merge_position_events(days.get(index, ())))
+            for index, day in enumerate(axis.days)]
+
+
+def _strategy_key(item):
+    return item.lab.key
+
+
+def _merge_position_events(sources):
+    if len(sources) == 1:
+        return tuple(sources[0])
+    return tuple(merge(*sources, key=_event_time)) if sources else ()
+
+
+def _event_time(event):
+    return event.time
+
+
+def _scale_events(events, units):
+    if units == 1:
+        return events
+    return (PositionEvent(event.time, event.position, event.opening, units) for event in events)
 
 
 def _merge_day(sources: list[Iterator[GrowthClose]]) -> tuple[GrowthClose, ...]:
@@ -256,6 +304,9 @@ def evaluate(
             median_days=(statistics.median(passed_days) if passed_days else 0.0),
             mean_peak_progress_pct=campaign.mean_peak_progress_pct,
             failures={"stop_out": campaign.stop_outs} if campaign.stop_outs else {},
+            margin_rejections=campaign.margin_rejections,
+            minimum_free_margin=campaign.minimum_free_margin,
+            peak_margin=campaign.peak_margin,
         )
     series = combined_series(strategies, allocations)
     complete_window = max_days * len(profile.phases)
@@ -304,12 +355,14 @@ def search(
         capital, required, evaluate_proposal, progress,
     )
     allocations, measured = optimizer.run()
+    if not measured.margin_feasible:
+        raise ValueError("Ninguna composición evaluada sostuvo todas sus posiciones con el margen libre")
     if progress:
         progress(
             f"{measured.passed} pasadas · mediana {measured.median_days:g} días · "
             f"{measured.pass_rate:.1f}% · {len(optimizer.scores)} composiciones comparadas"
         )
-    return SearchResult(allocations, measured, tuple(by_key[key] for key in allocations))
+    return SearchResult(allocations, measured, tuple(by_key[key] for key in allocations), optimizer.summary())
 
 
 def _allocation_payload(item: PropStrategy, units: int) -> dict[str, object]:
@@ -319,10 +372,14 @@ def _allocation_payload(item: PropStrategy, units: int) -> dict[str, object]:
         "set_id": item.lab.set_id, "set_path": item.lab.set_path,
         "symbol": item.lab.symbol, "timeframe": item.lab.timeframe,
         "units": units, "lot": round(units * item.lot_per_unit, 8),
+        "source_lot": round(units * (item.source_lot_per_unit or item.lot_per_unit), 8),
         "risk_multiplier": item.risk_multiplier,
         "net_profit_contribution": sum(item.series) * units,
         "standalone_valley_dd": item.lab.valley_dd * item.risk_multiplier * units,
         "margin_required": item.lab.margin_per_unit * item.risk_multiplier * units,
+        **({"prop_symbol": item.prop_contract.symbol, "prop_contract_size": item.prop_contract.volume.contract,
+            "source_contract_size": item.source_volume.contract, "prop_leverage": item.prop_contract.leverage}
+           if item.prop_contract and item.source_volume else {}),
     }
 
 
@@ -353,11 +410,13 @@ def result_payload(
     result: SearchResult, axis: LabAxis | None = None, capital: float = 0.0,
 ) -> dict[str, object]:
     evaluation = asdict(result.evaluation)
+    evaluation['margin_feasible'] = result.evaluation.margin_feasible
     evaluation["attempts_per_pass"] = (
         100.0 / result.evaluation.pass_rate if result.evaluation.pass_rate else None
     )
     payload = {
         "evaluation": evaluation,
+        "proposals_by_size": list(result.proposals_by_size),
         "allocations": [
             _allocation_payload(item, result.allocations[item.lab.key])
             for item in result.strategies
