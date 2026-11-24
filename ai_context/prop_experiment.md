@@ -73,8 +73,8 @@ del ranking. Las ejecuciones antiguas siguen disponibles con su resultado.
 El buscador refina varios puntos de partida añadiendo, quitando, sustituyendo
 miembros y reajustando unidades. Es una búsqueda acotada y determinista.
 Si se repiten los mismos ajustes y la composición anterior sigue siendo
-elegible, se puntúa de nuevo como alternativa. La composición devuelta es
-la mejor de las propuestas evaluadas.
+elegible, se prueba también con retoques de lote antes de decidir. El buscador
+devuelve la mejor de las propuestas evaluadas.
 La ampliación vuelve a recorrer el pool entero desde una composición de varios
 miembros. Prueba también añadir y reducir conjuntamente los lotes existentes,
 y continúa más allá de una ampliación que pierde contra el mejor resultado.
@@ -134,7 +134,9 @@ simulación usa capital nominal en EUR. El PnL de los informes en EUR entra
 directamente y el de otras divisas se valora con la última cotización OHLC
 disponible hacia EUR, directa o vía USD. El margen y el flotante se valoran
 desde la divisa de cotización del símbolo. Cada cruce debe tener una observación
-reciente. Las fichas de [The5ers](https://lp.the5ers.com/hub-assets-specifications/)
+reciente. Si falta una cotización al abrir la ventana, los informes OHLC
+anteriores sólo aportan precios FX observados hasta ese momento.
+Las fichas de [The5ers](https://lp.the5ers.com/hub-assets-specifications/)
 y [RoboForex ECN](https://roboforex.com/help/faq/trading-vocabulary/what-is-a-lot/)
 son el respaldo del tamaño de contrato publicado. Las fichas del terminal de
 origen prevalecen cuando están disponibles.
@@ -154,8 +156,9 @@ El histórico manual viene de la pasada generada para el portafolio manual o
 de su tramo OHLC existente. Se descarta cualquier modelo distinto de OHLC
 declarado en el informe.
 
-La suma conservadora de picos individuales acota la búsqueda de lotes. El
-margen de campaña se calcula con las posiciones abiertas, los precios
+La suma de márgenes máximos por día acota la búsqueda de lotes. Dos estrategias
+cuyos picos caen en días distintos pueden compartir capital. El margen de
+campaña se calcula con las posiciones abiertas, los precios
 observados y el apalancamiento The5ers. Una cartera con órdenes rechazadas o
 margen libre negativo observado queda fuera de la clasificación utilizable.
 Se muestran el margen utilizado máximo y el margen libre mínimo de la campaña.

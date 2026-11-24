@@ -17,7 +17,7 @@ from ..experiment.experiment_lab import LabAxis, LabStrategy
 from .prop_execution import PropContract, VolumeSpec
 from .prop_position_book import PositionEvent
 from .prop_profiles import PropPhase, PropProfile
-from .prop_experiment_search import CompositionSearch
+from .prop_experiment_search import CompositionSearch, daily_margin_usage
 from .prop_search_base import search_base_payload
 from .the5ers_hyper_growth_budget import simulate_monthly_campaign
 from .the5ers_hyper_growth_engine import GrowthClose, GrowthDay
@@ -38,6 +38,7 @@ class PropStrategy:
     prop_contract: PropContract | None = None
     source_lot_per_unit: float = 0.0
     position_events: dict[int, tuple[PositionEvent, ...]] | None = None
+    margin_by_day: tuple[float, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -353,9 +354,11 @@ def search(
     def evaluate_proposal(proposal):
         return evaluate(tuple(by_key[key] for key in proposal), proposal, **kwargs)
 
+    daily_margins = {key: item.margin_by_day for key, item in by_key.items() if item.margin_by_day}
     optimizer = CompositionSearch(
         {key: item.lab.margin_per_unit for key, item in by_key.items()},
         capital, required, evaluate_proposal, progress,
+        daily_margins=daily_margins if daily_margins.keys() == by_key.keys() else None,
     )
     allocations, measured = optimizer.run(incumbent)
     if not measured.margin_feasible:
@@ -400,10 +403,14 @@ def _portfolio_payload(
         peak = max(peak, balance)
         max_drawdown = max(max_drawdown, peak - balance)
         curve.append({"time": day, "value": balance})
-    margin = sum(
-        item.lab.margin_per_unit * item.risk_multiplier * result.allocations[item.lab.key]
-        for item in result.strategies
-    )
+    daily_margins = {item.lab.key: item.margin_by_day for item in result.strategies if item.margin_by_day}
+    if daily_margins and daily_margins.keys() == result.allocations.keys():
+        margin = max(daily_margin_usage(daily_margins, result.allocations))
+    else:
+        margin = sum(
+            item.lab.margin_per_unit * item.risk_multiplier * result.allocations[item.lab.key]
+            for item in result.strategies
+        )
     return {
         "curve": curve, "net_profit": balance, "max_drawdown": max_drawdown,
         "best_day": max(series, default=0.0), "worst_day": min(series, default=0.0),

@@ -172,6 +172,20 @@ class PropExecutionTests(unittest.TestCase):
         self.assertEqual(measured.passed, 12)
         self.assertEqual({row['members']: row['best_passed'] for row in optimizer.summary()}[2], 10)
 
+    def test_search_combines_strategies_whose_margin_peaks_are_on_different_days(self):
+        def measure(lots):
+            passed = len(lots)
+            return Evaluation(passed, passed, 100, 1, 100, {})
+
+        optimizer = CompositionSearch(
+            {'a': 6, 'b': 6, 'c': 6}, 10, set(), measure, None,
+            daily_margins={'a': (6, 0), 'b': (0, 6), 'c': (6, 0)},
+        )
+        self.assertEqual(optimizer.capacity('b', {'a': 1}), 1)
+        self.assertEqual(optimizer.capacity('c', {'a': 1}), 0)
+        self.assertEqual(optimizer.margin({'a': 1, 'b': 1}), 6)
+        self.assertEqual(optimizer.run()[1].passed, 2)
+
     def test_mt5_validation_uses_equal_exposure_at_the_source_broker(self):
         result = {'allocations': [{'origin_node': 'ic', 'lot': 0.07, 'source_lot': 0.35}]}
         self.assertEqual(_validation_groups(result)[0][:2], ('ic', 0.35))

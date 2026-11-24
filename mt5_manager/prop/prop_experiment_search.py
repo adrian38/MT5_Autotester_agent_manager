@@ -15,8 +15,19 @@ def _lot_probes(maximum: int) -> tuple[int, ...]:
     return (*probes, maximum) if maximum else ()
 
 
+def daily_margin_usage(daily_margins, allocation):
+    if not daily_margins:
+        return ()
+    days = len(next(iter(daily_margins.values())))
+    used = [0.0] * days
+    for key, units in allocation.items():
+        for day, margin in enumerate(daily_margins[key]):
+            used[day] += margin * units
+    return tuple(used)
+
+
 class CompositionSearch:
-    def __init__(self, margins, capital, required, evaluate, progress):
+    def __init__(self, margins, capital, required, evaluate, progress, *, daily_margins=None):
         self.margins = margins
         self.capital = capital
         self.required = required
@@ -25,6 +36,10 @@ class CompositionSearch:
         self.scores = {}
         self.seed_leaders = ()
         self.stage = "Evaluando estrategias y lotes"
+        self.daily_margins = daily_margins or {}
+        self._margin_key = None
+        self._daily_usage = ()
+        self._peak_usage = 0.0
 
     def measure(self, allocation):
         key = tuple(sorted(allocation.items()))
@@ -38,7 +53,18 @@ class CompositionSearch:
         return self.measure(allocation).score
 
     def margin(self, allocation):
+        if self.daily_margins:
+            self._margin_by_day(allocation)
+            return self._peak_usage
         return sum(self.margins[key] * units for key, units in allocation.items())
+
+    def _margin_by_day(self, allocation):
+        key = tuple(allocation.items())
+        if key != self._margin_key:
+            self._daily_usage = daily_margin_usage(self.daily_margins, allocation)
+            self._peak_usage = max(self._daily_usage)
+            self._margin_key = key
+        return self._daily_usage
 
     def fits(self, allocation):
         return self.margin(allocation) <= self.capital + 1e-9
@@ -47,6 +73,15 @@ class CompositionSearch:
         margin = self.margins[key]
         if not isfinite(margin) or margin <= 0:
             return 0
+        if self.daily_margins:
+            used = self._margin_by_day(others)
+            if self._peak_usage > self.capital + 1e-9:
+                return 0
+            maximum = min((
+                (self.capital - existing + 1e-9) / required
+                for existing, required in zip(used, self.daily_margins[key]) if required > 0
+            ), default=0)
+            return max(0, floor(maximum))
         return max(0, floor((self.capital - self.margin(others) + 1e-9) / margin))
 
     def best_single_lots(self, base):
@@ -205,6 +240,7 @@ class CompositionSearch:
         best = self.grow(best, ranked)
         if (incumbent and self.required <= incumbent.keys() <= self.margins.keys()
                 and all(units > 0 for units in incumbent.values()) and self.fits(incumbent)):
-            if self.rank(incumbent) > self.rank(best):
-                best = self.improve(incumbent, ranked)
+            retuned = self.improve(incumbent, ranked)
+            if self.rank(retuned) > self.rank(best):
+                best = retuned
         return best, self.measure(best)

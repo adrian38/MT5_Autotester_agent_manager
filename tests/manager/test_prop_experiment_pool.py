@@ -47,6 +47,21 @@ def _item(set_id: str, set_path: str) -> SimpleNamespace:
 
 
 class PropExperimentPoolTests(unittest.TestCase):
+    def test_fx_reference_reads_previous_ohlc_when_the_first_rate_is_missing(self) -> None:
+        source = _Source()
+        bridge = {'target_symbol': 'EURUSD', 'is_report_path': 'previous.htm'}
+        cross = {'target_symbol': 'USDJPY', 'is_report_path': 'cross.htm'}
+        current = {'target_symbol': 'EURJPY', 'oos_report_path': 'current.htm'}
+        source.candidate_rows = lambda **_kwargs: [bridge, cross, current]
+        with mock.patch.object(pool, '_read_ohlc_sets', return_value=[]) as read:
+            pool.load_fx_reference(
+                lambda _: source, {'source_nodes': ['node']}, print, {'JPY'},
+                preceding={'JPY'},
+            )
+        calls = {call.args[1]: call.args[0] for call in read.call_args_list}
+        self.assertCountEqual(calls['oos_report_path'], [cross, current])
+        self.assertCountEqual(calls['is_report_path'], [bridge, cross])
+
     def test_opening_inventory_counts_admitted_sets_without_parsing_reports(self) -> None:
         source = _Source()
         source.candidate_rows = lambda **_kwargs: [

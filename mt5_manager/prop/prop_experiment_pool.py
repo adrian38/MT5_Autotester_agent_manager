@@ -174,24 +174,32 @@ def _manual_sets(
     return loaded, len(rows)
 
 
-def load_fx_reference(source_factory, settings, checkpoint, currencies):
+def _fx_reference_pairs(currencies):
+    return {pair for currency in currencies for reference in ('EUR', 'USD') if currency != reference
+            for pair in (currency + reference, reference + currency)}
+
+
+def load_fx_reference(source_factory, settings, checkpoint, currencies, *, preceding=()):
     """Read OHLC observations for the missing direct or bridged EUR rates."""
     references = []
-    pairs = {pair for currency in currencies for reference in ('EUR', 'USD') if currency != reference
-             for pair in (currency + reference, reference + currency)}
+    pairs = _fx_reference_pairs(currencies)
+    earlier_pairs = _fx_reference_pairs(set(preceding) | {'USD'}) if preceding else set()
     for node in settings['source_nodes']:
         try:
             source = source_factory(node)
             rows = source.candidate_rows(include_quarantined=False)
         except (OSError, ValueError, sqlite3.Error):
             continue
-        selected = {pair: [] for pair in pairs}
+        selected = {pair: [] for pair in pairs | earlier_pairs}
         for row in rows:
             symbol = portfolio_symbol_key(row.get('executable_symbol') or row.get('target_symbol') or row.get('symbol'))
             if symbol in selected and len(selected[symbol]) < 12:
                 selected[symbol].append(row)
-        read = _read_ohlc_sets([row for group in selected.values() for row in group], _ohlc_segment(settings),
+        read = _read_ohlc_sets([row for pair in pairs for row in selected[pair]], _ohlc_segment(settings),
                               f'{source.broker} · cotizaciones FX', [], checkpoint)
+        earlier_rows = [row for pair in earlier_pairs for row in selected[pair][:4] if row.get('is_report_path')]
+        read.extend(_read_ohlc_sets(earlier_rows, 'is_report_path',
+                                   f'{source.broker} · cotizaciones FX anteriores', [], checkpoint))
         references.extend(trade for item in read for trade in item.closed_trades_2020_2026)
     return references
 

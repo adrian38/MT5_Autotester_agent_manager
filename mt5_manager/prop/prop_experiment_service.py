@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from collections import Counter, deque
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -344,10 +345,16 @@ class PropExperimentCoordinator:
                            for item in pool if item.lab.key not in executable_keys)
         rates = ObservedEuroRates(pool)
         required = {item.prop_contract.quote for item in executable if item.prop_contract}
+        required.update(item.prop_contract.base for item in executable
+                        if item.prop_contract and item.prop_contract.base == 'USD')
         required.update(trade.currency for item in executable for trade in item.closed_trades if trade.currency)
         missing = rates.missing_references(required)
-        if missing:
-            reference = load_fx_reference(self.source_factory, pool_settings, self._checkpoint, missing)
+        first_day = datetime.fromisoformat(PHASE_ONE_FIRST_DAY)
+        preceding = {currency for currency in required if not rates.at(currency, first_day)} if not historical else set()
+        if missing or preceding:
+            reference = load_fx_reference(
+                self.source_factory, pool_settings, self._checkpoint, missing, preceding=preceding,
+            )
             rates = ObservedEuroRates(pool, reference)
         return executable, axis, warnings + credibility_warnings, origins, rates, rejected
 

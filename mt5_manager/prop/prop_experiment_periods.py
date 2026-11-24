@@ -153,15 +153,19 @@ def _prop_position(item, trade, lots, rates, close_in_window):
     ), ''
 
 
-def _observed_peak_margin(events):
-    margin = peak = 0.0
-    for event in events:
-        position = event.position
-        bound = max(position.margin(position.open_price, position.open_quote_rate, 1),
-                    position.margin(position.close_price, position.close_quote_rate, 1))
-        margin += bound if event.opening else -bound
-        peak = max(peak, margin)
-    return peak
+def _observed_daily_margins(events, days):
+    margin = 0.0
+    peaks = []
+    for index in range(days):
+        peak = margin
+        for event in events.get(index, ()):
+            position = event.position
+            bound = max(position.margin(position.open_price, position.open_quote_rate, 1),
+                        position.margin(position.close_price, position.close_quote_rate, 1))
+            margin += bound if event.opening else -bound
+            peak = max(peak, margin)
+        peaks.append(max(peak, 0.0))
+    return tuple(peaks)
 
 
 def _replay_prop_strategy(item, days, rates):
@@ -192,11 +196,11 @@ def _replay_prop_strategy(item, days, rates):
             values[closed] += position.closed_pnl
     events = {day: tuple(sorted(rows, key=lambda event: (event.time, not event.opening)))
               for day, rows in sorted(by_day.items())}
-    margin = _observed_peak_margin(event for rows in events.values() for event in rows)
+    margins = _observed_daily_margins(events, len(days))
     series = tuple(values)
     return replace(
         item, series=series, closed_trades=(), lot_per_unit=lots[1], source_lot_per_unit=lots[0],
-        position_events=events,
+        position_events=events, margin_by_day=margins,
         lab=replace(item.lab, series=series, net=sum(series), valley_dd=valley_dd(series),
-                    active_days=len(by_day), margin_per_unit=margin),
+                    active_days=len(by_day), margin_per_unit=max(margins)),
     ), ''
