@@ -91,6 +91,20 @@ class PropV2SearchTests(unittest.TestCase):
         repaired = search_v2(items, axis, program, settings, required_keys={'2'})
         self.assertIn('2', repaired.allocations)
 
+    def test_v1_result_is_the_floor_of_v2(self):
+        days = tuple((date(2025, 1, 1) + timedelta(days=i)).isoformat() for i in range(32))
+        axis = LabAxis(days, (0,) * 31 + (1,), 2)
+        program = profile('the5ers-growth')
+        settings = {'capital': 5000}
+        # Seed 33 is a pool where the adaptive frontier alone stopped one approval short of V1.
+        rng = Random(33)
+        labs = [replace(_strategy(str(i), 10, tuple(rng.randrange(-180, 270, 20) for _ in days)),
+                        margin_per_unit=rng.choice((300, 500, 750, 1000))) for i in range(8)]
+        items = executable_pool(labs, set(), set())
+        before = search(items, axis, program, settings)
+        after = search_v2(items, axis, program, settings)
+        self.assertGreaterEqual(after.evaluation.score, before.evaluation.score)
+
     def test_lazy_position_days_match_the_original_campaign(self):
         start = datetime(2025, 1, 31, 8)
         end = start + timedelta(hours=2)

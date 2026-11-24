@@ -48,7 +48,9 @@ def _growth_builder(strategies):
 
 class AdaptiveCompositionSearch(CompositionSearch):
     WIDTH = 6
-    ROUNDS = 6
+    MIN_ROUNDS = 6
+    ROUNDS = 12
+    PATIENCE = 2
 
     def __init__(self, *args, series, symbols, **kwargs):
         super().__init__(*args, **kwargs)
@@ -120,6 +122,9 @@ class AdaptiveCompositionSearch(CompositionSearch):
         return chain(self._refine_lots(current), self._transfer_lots(current),
                      self._additions(current, partners), self.replacements(current, partners[:5]))
 
+    def _leader(self):
+        return max(result.score for result in self.scores.values())
+
     def _speed_rank(self, proposal, weight):
         result = self.measure(proposal)
         days = result.median_days if result.passed else float('inf')
@@ -159,31 +164,33 @@ class AdaptiveCompositionSearch(CompositionSearch):
                 current = revised
 
     def run(self, incumbent=None):
+        # V1 is the floor: its walk shares self.scores, so V2 never returns less.
+        baseline, _ = super().run(incumbent)
         base = dict.fromkeys(sorted(self.required), 1)
-        if not self.fits(base):
-            raise ValueError("Las estrategias supervivientes exceden el margen de la cuenta prop")
         ranked = self.best_single_lots(base)
         self.seed_leaders = self._anchors(ranked, self.seed_frontier(base, ranked))
-        starts = [{**base, key: units} for key, units in self.seed_leaders]
+        starts = [baseline, *({**base, key: units} for key, units in self.seed_leaders)]
         if base:
             starts.append(base)
-        if (incumbent and self.required <= incumbent.keys() <= self.margins.keys()
-                and all(units > 0 for units in incumbent.values()) and self.fits(incumbent)):
-            starts.insert(0, incumbent)
-        if not starts:
-            raise ValueError("Ninguna estrategia cabe en el margen de la cuenta prop")
+        # V1 only measures an incumbent that still fits and keeps its required members.
+        if incumbent and incumbent != baseline and tuple(sorted(incumbent.items())) in self.scores:
+            starts.insert(1, incumbent)
         for start in starts:
             self.measure(start)
         self.stage = 'Búsqueda V2 de combinaciones y lotes'
-        frontier, expanded = starts, set()
+        frontier, expanded, stale = starts, set(), 0
+        leader = self._leader()
         for depth in range(self.ROUNDS):
-            if not frontier:
+            if not frontier or (depth >= self.MIN_ROUNDS and stale >= self.PATIENCE):
                 break
             if self.progress:
-                self.progress(f'{self.stage} · ronda {depth + 1}/{self.ROUNDS}')
+                self.progress(f'{self.stage} · ronda {depth + 1} · hasta {self.ROUNDS}')
             expanded.update(tuple(sorted(item.items())) for item in frontier)
             proposals = chain.from_iterable(self._neighbors(item, ranked) for item in frontier)
             frontier = self._frontier(proposals, expanded)
+            previous, leader = leader, self._leader()
+            # Each round adds at most one member, so large portfolios need the rounds that keep paying.
+            stale = 0 if leader > previous else stale + 1
         self._polish()
         best = max(self.scores, key=lambda signature: self.scores[signature].score)
         return dict(best), self.scores[best]

@@ -89,9 +89,14 @@ propuestas comparadas, viables y la mejor puntuación observada para cada tamañ
 ### Motor V2 y reutilización de evidencia
 
 El selector conserva V1 como valor por defecto para los ajustes anteriores.
-V2 vive en `prop_experiment_engine_v2.py`. Mide lotes para todo el pool y
-refina varias composiciones con cambios de volumen, sustituciones y estrategias
-que aportan PnL en los días más débiles. Conserva como punto de partida la
+V2 vive en `prop_experiment_engine_v2.py`. Primero ejecuta la búsqueda completa
+de V1 sobre la misma caché de evaluaciones, así que nunca devuelve una
+puntuación inferior a la de V1. Después refina desde ese resultado y desde
+varias anclas con cambios de volumen, sustituciones y estrategias que aportan
+PnL en los días más débiles. Hace al menos seis rondas y sigue mientras la
+mejor puntuación suba en las dos últimas, hasta doce: cada ronda añade como
+mucho un miembro y las carteras de ocho a diez estrategias necesitaban más de
+seis. Conserva como punto de partida la
 última composición comparable si aún cabe y sus miembros siguen admitidos.
 Ambos motores usan la misma campaña The5ers, con el número de aprobaciones
 por delante de la mediana de días. V2 prepara los eventos diarios cuando la
@@ -113,6 +118,30 @@ Al preparar 85 estrategias, V2 pasó de unos 25 a unos 3 segundos al reutilizar
 V1 aprobó 32 pruebas con mediana de 9 días y V2 aprobó 33 con mediana de 10 días.
 La prueba controlada de `test_prop_experiment_v2.py` cubre un caso distinto en
 el que V2 mejora ambas medidas.
+
+Segunda medición del mismo día, con V1 como suelo, sobre ocho subconjuntos
+deterministas de 24 estrategias del pool real de ICTrading (1.967), cuenta de
+5.000 € (aprobaciones / mediana de días):
+
+| Semilla | V1 | V2 |
+| --- | --- | --- |
+| 1 | 25 / 6 | 28 / 6 |
+| 2 | 33 / 8 | 33 / 7 |
+| 3 | 34 / 10,5 | 34 / 10,5 |
+| 4 | 24 / 15 | 28 / 15 |
+| 5 | 38 / 4 | 40 / 5 |
+| 6 | 19 / 13 | 22 / 14 |
+| 7 | 26 / 15 | 29 / 9 |
+| 8 | 30 / 14 | 31 / 13 |
+
+Sin el suelo, la semilla 3 bajaba a 32 / 12 y la frontera se quedaba en cinco
+miembros. En las semillas 5 y 6 la ganancia de aprobaciones cuesta un día, y no
+es un fallo de búsqueda: entre todo lo evaluado no hay 39 o 40 aprobaciones por
+debajo de 5 días, y ni triplicando anchura y rondas aparece. Lo que sí aparece
+es una composición que domina la de V1 en las dos medidas (38 / 3 y 19 / 12),
+que el orden por aprobaciones descarta. Cambiar ese orden es una decisión de
+producto, no del motor. V2 compara entre 4.000 y 11.000 composiciones frente a
+las 500-3.000 de V1 y tarda en proporción.
 
 El simulador exige cobertura de la ventana con las fechas declaradas de las
 pasadas que construyeron la serie. Un día laborable cubierto sin cierres
