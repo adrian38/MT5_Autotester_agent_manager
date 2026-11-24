@@ -198,8 +198,10 @@ El bankroll es **mensual**, no un saldo único para todo el histórico. La propi
 búsqueda usa `simulate_monthly_campaign`: el coste editable se descuenta del
 mes de inicio y el presupuesto se repone al cambiar de mes. Sólo hay una
 prueba activa. Con aperturas y cierres verificables, la siguiente empieza en la
-primera apertura posterior al bloque que resolvió la anterior, incluso si
-ocurre el mismo día. Arranca con saldo nuevo y sin posiciones arrastradas.
+primera apertura posterior al bloque que aprobó la anterior. Tras un stop-out,
+espera una hora desde el evento de pérdida y empieza en la primera apertura
+desde ese momento, aunque cambie el día o el mes. Arranca con saldo nuevo y
+excluye las operaciones que abrieron antes de esa primera apertura.
 La simulación sobre agregados diarios reanuda al día siguiente. Esa misma
 campaña alimenta el calendario y el resumen mensual.
 

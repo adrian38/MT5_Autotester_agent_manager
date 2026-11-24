@@ -5,6 +5,7 @@ from __future__ import annotations
 import statistics
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Sequence
 
 from .the5ers_hyper_growth_engine import GrowthAttempt, GrowthDay, simulate_evaluation
@@ -79,13 +80,14 @@ def simulate_monthly_campaign(
     series: Sequence[float | GrowthDay], days: Sequence[str], rules: HyperGrowthRules,
     bankroll_eur: float, fee_eur: float,
 ) -> MonthlyCampaign:
-    """Compra pruebas consecutivas y reutiliza el día sólo desde una apertura nueva."""
+    """Compra pruebas consecutivas y espera una hora tras un stop-out intradía."""
     if len(series) != len(days):
         raise ValueError("La serie Hyper Growth y su calendario no tienen la misma longitud")
     attempts: list[BudgetAttempt] = []
     spent: dict[str, float] = defaultdict(float)
     unfunded = []
     cursor = event = 0
+    restart_at: datetime | None = None
     positions = bool(series and isinstance(series[0], GrowthDay) and series[0].positions is not None)
     while cursor < len(series):
         month = days[cursor][:7]
@@ -96,7 +98,10 @@ def simulate_monthly_campaign(
             continue
         if positions:
             openings = series[cursor].positions
-            start_event = next((i for i in range(event, len(openings)) if openings[i].opening), None)
+            start_event = next((
+                i for i in range(event, len(openings)) if openings[i].opening
+                and (restart_at is None or openings[i].time >= restart_at)
+            ), None)
             if start_event is None:
                 cursor, event = cursor + 1, 0
                 continue
@@ -115,4 +120,8 @@ def simulate_monthly_campaign(
             cursor, event = result.end_index, 0
         else:
             cursor, event = result.end_index - 1, result.end_event
+            restart_at = None
+            if result.reason == "stop_out":
+                stopped_at = series[cursor].positions[event - 1].time
+                restart_at = stopped_at + timedelta(hours=1)
     return MonthlyCampaign(tuple(attempts), dict(spent), tuple(unfunded))

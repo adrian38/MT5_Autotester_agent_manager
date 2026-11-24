@@ -145,18 +145,51 @@ class PropExecutionTests(unittest.TestCase):
         self.assertEqual(replay.reason, 'stop_out')
         self.assertEqual(replay.final_balance, 4600)
 
+    def test_campaign_waits_an_hour_after_stop_out_and_only_trades_new_openings(self):
+        for stopped in (datetime(2025, 9, 30, 12), datetime(2025, 9, 30, 23, 30)):
+            with self.subTest(stopped=stopped):
+                def trade(symbol, open_offset, close_offset, pnl):
+                    opened = stopped + timedelta(minutes=open_offset)
+                    closed = stopped + timedelta(minutes=close_offset)
+                    position = PropPosition(symbol, opened, closed, 100, 100 + pnl / 100,
+                                            1, 1, 100, 1, 25, pnl)
+                    return PositionEvent(opened, position, True), PositionEvent(closed, position, False)
+
+                early_events = (
+                    *trade('stop_out', -60, 0, -400),
+                    *trade('already_open', -30, 70, 600),
+                    *trade('during_wait', 59, 75, 600),
+                )
+                eligible_events = trade('at_boundary', 60, 90, 550)
+                days = tuple(sorted({event.time.date().isoformat() for event in early_events}))
+
+                def campaign(events):
+                    series = [GrowthDay(0, date=day, positions=tuple(sorted(
+                        (event for event in events if event.time.date().isoformat() == day),
+                        key=lambda event: event.time,
+                    ))) for day in days]
+                    return simulate_monthly_campaign(series, days, HYPER_GROWTH_5K, 104, 52)
+
+                replay = campaign((*early_events, *eligible_events))
+                self.assertEqual([item.result.reason for item in replay.attempts], ['stop_out', 'passed'])
+                self.assertEqual(replay.attempts[1].result.final_balance, 5550)
+                self.assertEqual(replay.attempts[1].charged_month, days[-1][:7])
+                waiting = campaign(early_events)
+                self.assertEqual([item.result.reason for item in waiting.attempts], ['stop_out'])
+                self.assertEqual(sum(waiting.spent_by_month.values()), 52)
+
     def test_campaign_starts_again_intraday_without_reusing_trades_or_budget(self):
         january = datetime(2025, 1, 31)
         february = datetime(2025, 2, 3)
 
-        def trade(symbol, date, opened, closed):
-            start, end = date.replace(hour=opened), date.replace(hour=closed)
+        def trade(symbol, date, opened, closed, opening_minute=0):
+            start, end = date.replace(hour=opened, minute=opening_minute), date.replace(hour=closed)
             position = PropPosition(symbol, start, end, 100, 106, 1, 1, 100, 1, 25, 600)
             return PositionEvent(start, position, True), PositionEvent(end, position, False)
 
         january_events = sorted((
             *trade('first', january, 7, 9), *trade('held', january, 8, 11),
-            *trade('same_timestamp', january, 9, 10), *trade('second', january, 10, 12),
+            *trade('same_timestamp', january, 9, 10), *trade('second', january, 9, 12, opening_minute=30),
             *trade('over_budget', january, 13, 14),
         ), key=lambda event: event.time)
         days = ('2025-01-31', '2025-02-03')
