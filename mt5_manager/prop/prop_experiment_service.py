@@ -247,6 +247,9 @@ class PropExperimentCoordinator:
                 raise ValueError("Ya hay un experimento prop en curso")
             self.cancel = threading.Event()
             self.log_lines.clear()
+            incumbent = None
+            if self.result and self.result.get("settings") == settings:
+                _keys, incumbent = self._current_keys_and_units()
             self.result = None
             self.job = {
                 "status": "running", "started_at": utc_now(), "finished_at": None,
@@ -254,7 +257,7 @@ class PropExperimentCoordinator:
                 "settings": settings, "phase": 1, "operation": "build",
             }
         threading.Thread(
-            target=self._worker, args=("build", settings, {}), daemon=True,
+            target=self._worker, args=("build", settings, {"incumbent": incumbent}), daemon=True,
         ).start()
         return self.state()
 
@@ -345,7 +348,7 @@ class PropExperimentCoordinator:
                 discarded[item.lab.origin_node, item.source_kind, 'lote mínimo excede el capital'] += 1
         return eligible, axis, warnings + coverage_warnings, origins, discarded
 
-    def _run_build(self, settings: dict[str, Any]) -> None:
+    def _run_build(self, settings: dict[str, Any], incumbent: dict[str, int] | None = None) -> None:
         executable, axis, warnings, origins, discarded = self._phase_one_pool(settings)
         pool = _pool_payload(executable, origins, discarded)
         pool_count = pool["strategies"]
@@ -356,7 +359,8 @@ class PropExperimentCoordinator:
             f"({pool_count - seed_count - manual_count} generadas aceptadas FT6M, "
             f"{seed_count} seeds UBS aceptadas FT6M, {manual_count} manuales sin fases)"
         )
-        found = search(executable, axis, profile(settings["profile_id"]), settings, self._checkpoint)
+        found = search(executable, axis, profile(settings["profile_id"]), settings, self._checkpoint,
+                       incumbent=incumbent)
         payload = result_payload(found, axis, float(settings["capital"]))
         payload["attempt_analysis"] = attempt_analysis(
             found, axis, profile(settings["profile_id"]), settings,
@@ -407,7 +411,7 @@ class PropExperimentCoordinator:
         updated.update({
             **{key: value for key, value in (self.result or {}).items()
                if key not in {"allocations", "evaluation", "portfolio", "attempt_analysis",
-                              "proposals_by_size", "axis", "finished_at"}},
+                              "proposals_by_size", "search_base", "axis", "finished_at"}},
             "revision": int((self.result or {}).get("revision") or 1) + 1,
             "previous_revision": previous,
             "origins": origins, "warnings": warnings + [REPLAY_WARNING],
@@ -506,7 +510,7 @@ class PropExperimentCoordinator:
     def _worker(self, operation: str, settings: dict[str, Any], payload: dict[str, Any]) -> None:
         try:
             if operation == "build":
-                self._run_build(settings)
+                self._run_build(settings, payload.get("incumbent"))
             elif operation == "repair":
                 self._run_repair(settings, payload)
             elif operation == "validate_mt5":

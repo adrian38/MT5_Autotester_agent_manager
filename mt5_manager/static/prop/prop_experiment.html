@@ -85,6 +85,16 @@
         <div id="broker-pool-metrics" class="metrics empty">Calculando inventario preliminar…</div>
       </section>
       <div id="result-contract" class="metrics contract-metrics" hidden></div>
+      <details id="prop-search-base" class="prop-search-base" open hidden>
+        <summary>Base de la búsqueda y correlación <span id="prop-base-count"></span></summary>
+        <p id="prop-base-note" class="source-note"></p>
+        <div id="prop-base-content" hidden>
+          <div class="table-wrap"><table class="prop-base-table"><thead><tr><th>Clave</th><th>Símbolo</th><th>Broker</th><th>TF</th><th>Estrategia</th><th>Lote The5ers</th><th>Aprobadas</th><th>Mediana de días</th></tr></thead><tbody id="prop-base-rows"></tbody></table></div>
+          <div class="prop-base-legend"><span>−1 · inversa</span><span>0 · sin relación lineal</span><span>+1 · directa</span></div>
+          <p id="prop-base-pair" aria-live="polite"></p>
+          <div class="table-wrap" id="prop-base-matrix"></div>
+        </div>
+      </details>
       <details id="pool-outcome" hidden>
         <summary>Pool reproducido y descartes por broker</summary>
         <div id="pool-outcome-rows"></div>
@@ -142,6 +152,7 @@
   <div id="toast" role="status"></div>
   <script src="/portfolio_curve_view.js"></script>
   <script src="/exclusion_reason.js"></script>
+  <script src="/prop_search_base.js"></script>
   <script src="/prop_experiment.js"></script>
   <script src="/manager_restart.js"></script>
   <script src="/main_nav.js"></script>

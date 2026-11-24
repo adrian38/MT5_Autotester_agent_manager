@@ -68,6 +68,8 @@ class PropExperimentRouteTests(unittest.TestCase):
         self.assertIn("Calculando inventario preliminar", page)
         self.assertIn("Pool reproducido y descartes por broker", page)
         self.assertIn('id="search-comparison"', page)
+        self.assertIn('id="prop-search-base"', page)
+        self.assertIn('src="/prop_search_base.js"', page)
         self.assertIn("Familias de símbolos", page)
         self.assertIn("portfolio_curve_view.js", page)
         self.assertIn("Plan de pruebas prop", page)

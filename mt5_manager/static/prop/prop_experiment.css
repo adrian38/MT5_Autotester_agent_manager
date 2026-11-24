@@ -116,6 +116,24 @@ input[readonly] { color: var(--lime); font-weight: 800; }
 .calendar-day.no-data { opacity: .45; }
 .calendar-day.outside { visibility: hidden; }
 .table-wrap { overflow: auto; margin-top: 18px; }
+.prop-search-base { margin: 18px 0; }
+.prop-search-base summary span { color: var(--muted); margin-left: 8px; }
+.prop-base-table td:nth-child(5) { overflow-wrap: anywhere; }
+.prop-base-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; color: var(--muted); }
+.prop-base-legend span:first-child { color: var(--red); }
+.prop-base-legend span:last-child { color: var(--lime); }
+#prop-base-pair { min-height: 1.4em; }
+#prop-base-matrix { margin-top: 6px; }
+.prop-base-matrix { width: max-content; max-width: none; }
+.prop-base-matrix th { text-align: center; white-space: nowrap; }
+.prop-base-matrix td { padding: 2px; }
+.prop-base-matrix button {
+  min-width: 64px; width: 100%; padding: 7px 5px; background: color-mix(in srgb, var(--tone) var(--amount), var(--panel));
+  color: var(--ink); border-radius: 4px; border: 1px solid transparent; box-shadow: none; text-align: center;
+  font: inherit; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.prop-base-matrix button[aria-pressed="true"] { border-color: var(--ink); }
+.prop-base-matrix button:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 10px 8px; }
 th { color: var(--muted); font-size: 11px; text-transform: uppercase; }

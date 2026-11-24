@@ -23,6 +23,7 @@ class CompositionSearch:
         self.evaluate = evaluate
         self.progress = progress
         self.scores = {}
+        self.seed_leaders = ()
         self.stage = "Evaluando estrategias y lotes"
 
     def measure(self, allocation):
@@ -58,18 +59,29 @@ class CompositionSearch:
                 seeds.append((key, best))
         return sorted(seeds, key=lambda pair: self.rank({**base, pair[0]: pair[1]}), reverse=True)
 
-    def pair_seeds(self, base, ranked):
-        for (left, left_best), (right, right_best) in combinations(ranked[:24], 2):
+    def seed_frontier(self, base, ranked):
+        """One representative for each undominated approval count and duration."""
+        leaders = []
+        fastest = float('inf')
+        for key, lots in ranked:
+            result = self.measure({**base, key: lots})
+            if result.margin_feasible and result.passed and result.median_days < fastest:
+                leaders.append((key, lots))
+                fastest = result.median_days
+        return tuple(leaders or ranked[:1])
+
+    def pair_seeds(self, base, leaders):
+        for (left, left_best), (right, right_best) in combinations(leaders, 2):
             for a, b in sorted({(1, 1), (left_best, right_best), (left_best, 1), (1, right_best)}):
                 proposal = {**base, left: a, right: b}
                 if self.fits(proposal):
                     yield proposal
 
-    def complementary_seeds(self, ranked):
-        """Cruza las mejores bases con todo el pool, aunque el socio rinda poco solo."""
-        for anchor, anchor_best in ranked[:2]:
-            for units in sorted({1, max(1, anchor_best // 2)}):
-                base = {anchor: units}
+    def complementary_seeds(self, required, ranked, leaders):
+        """Cruza cada base con todo el pool, aunque el socio rinda poco solo."""
+        for anchor, anchor_best in leaders:
+            for units in sorted({1, max(1, anchor_best // 2), anchor_best}):
+                base = {**required, anchor: units}
                 for partner, hint in ranked:
                     if partner == anchor:
                         continue
@@ -145,7 +157,7 @@ class CompositionSearch:
                 without_improvement = 0
             else:
                 without_improvement += 1
-        return self.improve(best, ranked[:24])
+        return self.improve(best, ranked)
 
     def summary(self):
         by_size = {}
@@ -161,24 +173,24 @@ class CompositionSearch:
             'best_pass_rate': best.pass_rate if best else None,
         } for size, (count, feasible, best) in sorted(by_size.items()))
 
-    def run(self):
+    def run(self, incumbent=None):
         base = dict.fromkeys(sorted(self.required), 1)
         if not self.fits(base):
             raise ValueError("Las estrategias supervivientes exceden el margen de la cuenta prop")
         ranked = self.best_single_lots(base)
+        self.seed_leaders = self.seed_frontier(base, ranked)
         self.stage = "Búsqueda de combinaciones"
-        singles = [{**base, key: units} for key, units in ranked[:24]]
-        pairs = sorted(self.pair_seeds(base, ranked), key=self.rank, reverse=True)
-        starts = ([base] if base else []) + singles[:4] + pairs[:4]
-        if not self.required:
-            existing = {tuple(sorted(seed.items())) for seed in starts}
-            complement = max(
-                (seed for seed in self.complementary_seeds(ranked)
-                 if tuple(sorted(seed.items())) not in existing),
-                key=self.rank, default=None,
-            )
-            if complement is not None:
-                starts.append(complement)
+        singles = [{**base, key: units} for key, units in self.seed_leaders]
+        pairs = sorted(self.pair_seeds(base, self.seed_leaders), key=self.rank, reverse=True)
+        starts = ([base] if base else []) + singles + pairs[:4]
+        existing = {tuple(sorted(seed.items())) for seed in starts}
+        complement = max(
+            (seed for seed in self.complementary_seeds(base, ranked, self.seed_leaders)
+             if tuple(sorted(seed.items())) not in existing),
+            key=self.rank, default=None,
+        )
+        if complement is not None:
+            starts.append(complement)
         if not starts:
             raise ValueError("Ninguna estrategia cabe en el margen de la cuenta prop")
         best = max(starts, key=self.rank)
@@ -186,9 +198,13 @@ class CompositionSearch:
         for start in starts:
             signature = tuple(sorted(start.items()))
             if signature not in refined:
-                candidate = self.improve(start, ranked[:24])
+                candidate = self.improve(start, self.seed_leaders)
                 refined.add(signature)
                 if self.rank(candidate) > self.rank(best):
                     best = candidate
         best = self.grow(best, ranked)
+        if (incumbent and self.required <= incumbent.keys() <= self.margins.keys()
+                and all(units > 0 for units in incumbent.values()) and self.fits(incumbent)):
+            if self.rank(incumbent) > self.rank(best):
+                best = self.improve(incumbent, ranked)
         return best, self.measure(best)

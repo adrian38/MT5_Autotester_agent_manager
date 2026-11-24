@@ -58,13 +58,23 @@ la clave `portfolios`, y el doble de prueba reproduce la forma real del contrato
 ## Simulación
 
 La búsqueda evalúa varias escalas de lote de cada estrategia elegible, hasta
-el margen disponible. Con las 24 mejor puntuadas siembra composiciones
-individuales y parejas. Refina varios puntos de partida añadiendo, quitando,
-sustituyendo miembros y reajustando unidades. Es una búsqueda acotada y
-determinista. La composición devuelta es la mejor de las propuestas evaluadas.
-En fase 1 también cruza las dos mejores bases individuales, a lote bajo y
-medio, con el pool entero. Esto descubre estrategias que aportan días de
-beneficio donde la base está inactiva y quedan abajo en el ranking individual.
+el margen disponible. La base toma una representante por cada combinación de
+aprobaciones y mediana de días que ninguna otra supera en ambos criterios.
+Si empatan en esos dos valores, usa los desempates de la campaña. El tamaño
+sale de los resultados. Cada base se cruza con todo el pool a varios lotes.
+Esto permite encontrar complementos que rindieron poco por separado.
+
+El resultado guarda las bases que realmente se usaron, su broker, símbolo,
+lote y la matriz de Pearson sobre PnL diario OHLC en USD. El calendario es
+común y los días cubiertos sin cierres cuentan como cero. Una serie constante
+deja el coeficiente sin valor. La correlación es diagnóstica y queda fuera
+del ranking. Las ejecuciones antiguas siguen disponibles con su resultado.
+
+El buscador refina varios puntos de partida añadiendo, quitando, sustituyendo
+miembros y reajustando unidades. Es una búsqueda acotada y determinista.
+Si se repiten los mismos ajustes y la composición anterior sigue siendo
+elegible, se puntúa de nuevo como alternativa. La composición devuelta es
+la mejor de las propuestas evaluadas.
 La ampliación vuelve a recorrer el pool entero desde una composición de varios
 miembros. Prueba también añadir y reducir conjuntamente los lotes existentes,
 y continúa más allá de una ampliación que pierde contra el mejor resultado.

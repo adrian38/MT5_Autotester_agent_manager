@@ -18,6 +18,7 @@ from .prop_execution import PropContract, VolumeSpec
 from .prop_position_book import PositionEvent
 from .prop_profiles import PropPhase, PropProfile
 from .prop_experiment_search import CompositionSearch
+from .prop_search_base import search_base_payload
 from .the5ers_hyper_growth_budget import simulate_monthly_campaign
 from .the5ers_hyper_growth_engine import GrowthClose, GrowthDay
 from .the5ers_hyper_growth_rules import rules_for_capital
@@ -75,6 +76,7 @@ class SearchResult:
     evaluation: Evaluation
     strategies: tuple[PropStrategy, ...]
     proposals_by_size: tuple[dict[str, Any], ...] = ()
+    search_base: dict[str, Any] | None = None
 
 
 def set_path_is_grid(value: Any) -> bool:
@@ -332,6 +334,7 @@ def search(
     strategies: Sequence[PropStrategy], axis: LabAxis, profile: PropProfile,
     settings: dict[str, float | int], progress: Callable[[str], None] | None = None,
     required_keys: set[str] | None = None,
+    *, incumbent: dict[str, int] | None = None,
 ) -> SearchResult:
     capital = float(settings["capital"])
     kwargs = dict(
@@ -354,7 +357,7 @@ def search(
         {key: item.lab.margin_per_unit for key, item in by_key.items()},
         capital, required, evaluate_proposal, progress,
     )
-    allocations, measured = optimizer.run()
+    allocations, measured = optimizer.run(incumbent)
     if not measured.margin_feasible:
         raise ValueError("Ninguna composición evaluada sostuvo todas sus posiciones con el margen libre")
     if progress:
@@ -362,7 +365,10 @@ def search(
             f"{measured.passed} pasadas · mediana {measured.median_days:g} días · "
             f"{measured.pass_rate:.1f}% · {len(optimizer.scores)} composiciones comparadas"
         )
-    return SearchResult(allocations, measured, tuple(by_key[key] for key in allocations), optimizer.summary())
+    return SearchResult(
+        allocations, measured, tuple(by_key[key] for key in allocations), optimizer.summary(),
+        search_base_payload(optimizer, by_key, axis),
+    )
 
 
 def _allocation_payload(item: PropStrategy, units: int) -> dict[str, object]:
@@ -424,4 +430,6 @@ def result_payload(
     }
     if axis is not None:
         payload["portfolio"] = _portfolio_payload(result, axis, capital)
+    if result.search_base is not None:
+        payload["search_base"] = result.search_base
     return payload

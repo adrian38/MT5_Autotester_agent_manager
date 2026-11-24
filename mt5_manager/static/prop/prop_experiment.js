@@ -246,6 +246,7 @@ function clearResult() {
   document.querySelector("#attempt-analysis").hidden = true;
   document.querySelector("#search-comparison").hidden = true;
   document.querySelector("#pool-outcome").hidden = true;
+  window.PropSearchBase.render(null, false);
   document.querySelector("#axis").textContent = "";
 }
 
@@ -413,6 +414,7 @@ function renderResult(result) {
   syncRepairButton();
   renderPortfolioContract(result);
   renderPoolOutcome(result);
+  window.PropSearchBase.render(result.search_base, true);
   renderSearchComparison(result);
   renderAttemptAnalysis(result);
   renderPhaseTwo(result);

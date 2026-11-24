@@ -9,6 +9,7 @@ from mt5_manager.prop.prop_execution import (
 from mt5_manager.prop.prop_experiment_engine import Evaluation, executable_pool, growth_series
 from mt5_manager.prop.prop_experiment_periods import replay_window
 from mt5_manager.prop.prop_experiment_search import CompositionSearch
+from mt5_manager.prop.prop_search_base import search_base_payload
 from mt5_manager.prop.prop_experiment_validation import _validation_groups
 from mt5_manager.prop.prop_position_book import PositionEvent, PropPosition
 from mt5_manager.prop.the5ers_hyper_growth_engine import GrowthDay, simulate_evaluation
@@ -17,6 +18,35 @@ from tests.manager.test_prop_experiment import _strategy
 
 
 class PropExecutionTests(unittest.TestCase):
+    def test_the_base_size_follows_the_approval_and_duration_frontier(self):
+        outcomes = {f'set-{index}': (index, index) for index in range(1, 32)}
+        outcomes['dominated'] = (15, 50)
+
+        def measure(lots):
+            passed, duration = outcomes[next(iter(lots))]
+            return Evaluation(40, passed, passed / 40 * 100, duration, 100, {})
+
+        optimizer = CompositionSearch(dict.fromkeys(outcomes, 1), 1, set(), measure, None)
+        leaders = optimizer.seed_frontier({}, optimizer.best_single_lots({}))
+        self.assertEqual([key for key, _ in leaders], [f'set-{index}' for index in range(31, 0, -1)])
+
+    def test_search_base_reports_brokers_and_real_daily_correlations(self):
+        rows = [
+            replace(_strategy('gold', 2, (1, 0, -1)), origin='ICTRADING', symbol='XAUUSD'),
+            replace(_strategy('yen', 2, (-1, 0, 1)), origin='AXI', symbol='USDJPY'),
+            replace(_strategy('flat', 2, (0, 0, 0)), origin='ROBOFOREX', symbol='EURUSD'),
+        ]
+        strategies = {row.key: item for row, item in zip(rows, executable_pool(rows, set(), set()))}
+        optimizer = CompositionSearch(dict.fromkeys(strategies, 1), 10, set(),
+                                      lambda _: Evaluation(4, 2, 50, 6, 100, {}), None)
+        optimizer.seed_leaders = (('gold', 1), ('yen', 2), ('flat', 1))
+        axis = LabAxis(('2025-01-02', '2025-01-03', '2025-01-06'), (0, 0, 0), 1)
+        base = search_base_payload(optimizer, strategies, axis)
+        self.assertEqual([(row['symbol'], row['broker']) for row in base['strategies']],
+                         [('XAUUSD', 'ICTRADING'), ('USDJPY', 'AXI'), ('EURUSD', 'ROBOFOREX')])
+        self.assertEqual(base['correlation'], [[1, -1, None], [-1, 1, None], [None, None, None]])
+        self.assertEqual(base['days'], 3)
+
     def test_roboforex_nikkei_is_not_a_one_to_one_lot_on_the5ers(self):
         source = source_volume_spec('.JP225Cash', {}, 'ROBOFOREX', 'ECN')
         prop = destination_contract('.JP225Cash')
