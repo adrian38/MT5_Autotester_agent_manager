@@ -65,7 +65,7 @@ sale de los resultados. Cada base se cruza con todo el pool a varios lotes.
 Esto permite encontrar complementos que rindieron poco por separado.
 
 El resultado guarda las bases que realmente se usaron, su broker, símbolo,
-lote y la matriz de Pearson sobre PnL diario OHLC en USD. El calendario es
+lote y la matriz de Pearson sobre PnL diario OHLC en EUR. El calendario es
 común y los días cubiertos sin cierres cuentan como cero. Una serie constante
 deja el coeficiente sin valor. La correlación es diagnóstica y queda fuera
 del ranking. Las ejecuciones antiguas siguen disponibles con su resultado.
@@ -129,10 +129,12 @@ captura, una apertura a 117,685 exigía 13.180,72 USD a 1:25. El nocional EUR de
 la ficha de ICTrading describía otro contrato y otro precio.
 
 La unidad se escala sobre el volumen fijo observado. Los descartes por
-contrato, conversión o volumen quedan registrados por broker y fuente. El PnL
-de cada cierre se convierte a USD con la última cotización OHLC disponible de
-un cruce con USD. El informe aporta su divisa y el motor descarta conversiones
-sin una observación reciente. Las fichas de [The5ers](https://lp.the5ers.com/hub-assets-specifications/)
+contrato, valoración o volumen quedan registrados por broker y fuente. La
+simulación usa capital nominal en EUR. El PnL de los informes en EUR entra
+directamente y el de otras divisas se valora con la última cotización OHLC
+disponible hacia EUR, directa o vía USD. El margen y el flotante se valoran
+desde la divisa de cotización del símbolo. Cada cruce debe tener una observación
+reciente. Las fichas de [The5ers](https://lp.the5ers.com/hub-assets-specifications/)
 y [RoboForex ECN](https://roboforex.com/help/faq/trading-vocabulary/what-is-a-lot/)
 son el respaldo del tamaño de contrato publicado. Las fichas del terminal de
 origen prevalecen cuando están disponibles.
@@ -182,16 +184,19 @@ número de estrategias, concentración o drawdown cerrado.
 
 El bankroll es **mensual**, no un saldo único para todo el histórico. La propia
 búsqueda usa `simulate_monthly_campaign`: el coste editable se descuenta del
-mes de inicio, nunca se reutiliza un día entre intentos y el presupuesto se
-repone al cambiar de mes. Sólo hay una prueba activa: tras resolverla, la
-siguiente empieza en el próximo día histórico disponible si su mes conserva
-bankroll. Esa misma campaña alimenta el calendario y el resumen mensual.
+mes de inicio y el presupuesto se repone al cambiar de mes. Sólo hay una
+prueba activa. Con aperturas y cierres verificables, la siguiente empieza en la
+primera apertura posterior al bloque que resolvió la anterior, incluso si
+ocurre el mismo día. Arranca con saldo nuevo y sin posiciones arrastradas.
+La simulación sobre agregados diarios reanuda al día siguiente. Esa misma
+campaña alimenta el calendario y el resumen mensual.
 
 La campaña llama al motor independiente `the5ers_hyper_growth_engine`. Una
 pausa diaria del 3% termina el día pero no falla la cuenta; sólo el stop-out
-estático del 6% cuenta como fallo. Cada celda del calendario representa la
-prueba que está activa ese día; el final del histórico queda «en curso», no
-fallado. La búsqueda ordena primero por número total de pruebas pasadas, luego
+estático del 6% cuenta como fallo. Cada celda del calendario muestra las
+pruebas que estuvieron activas ese día. El final del histórico queda «en
+curso» si la cuenta todavía está abierta. La búsqueda ordena primero por el
+número total de pruebas pasadas, luego
 por menor mediana de días naturales para aprobar y después por tasa de aprobación: una
 cartera lenta con 100% no vence a otra que pasa más pruebas en el mismo tramo.
 En la tabla mensual, las compras se cuentan en su fecha de inicio, los

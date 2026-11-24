@@ -175,9 +175,10 @@ def _manual_sets(
 
 
 def load_fx_reference(source_factory, settings, checkpoint, currencies):
-    """Read only OHLC FX observations needed to price another selected family in USD."""
+    """Read OHLC observations for the missing direct or bridged EUR rates."""
     references = []
-    pairs = {f'{currency}USD' for currency in currencies} | {f'USD{currency}' for currency in currencies}
+    pairs = {pair for currency in currencies for reference in ('EUR', 'USD') if currency != reference
+             for pair in (currency + reference, reference + currency)}
     for node in settings['source_nodes']:
         try:
             source = source_factory(node)
@@ -190,7 +191,7 @@ def load_fx_reference(source_factory, settings, checkpoint, currencies):
             if symbol in selected and len(selected[symbol]) < 12:
                 selected[symbol].append(row)
         read = _read_ohlc_sets([row for group in selected.values() for row in group], _ohlc_segment(settings),
-                              f'{source.broker} · cotizaciones USD', [], checkpoint)
+                              f'{source.broker} · cotizaciones FX', [], checkpoint)
         references.extend(trade for item in read for trade in item.closed_trades_2020_2026)
     return references
 

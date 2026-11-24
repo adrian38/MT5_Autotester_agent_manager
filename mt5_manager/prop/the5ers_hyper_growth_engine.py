@@ -44,6 +44,7 @@ class GrowthAttempt:
     margin_rejections: int = 0
     peak_margin: float | None = None
     minimum_free_margin: float | None = None
+    end_event: int | None = None
 
     @property
     def completed(self) -> bool:
@@ -110,13 +111,14 @@ def _closed_day(
 def simulate_evaluation(
     series: Sequence[float | GrowthDay], start: int = 0,
     rules: HyperGrowthRules = HYPER_GROWTH_5K, max_days: int | None = None,
+    *, start_event: int = 0,
 ) -> GrowthAttempt:
     """Simula una cuenta hasta aprobar, alcanzar stop-out o agotar evidencia."""
     if start < 0 or start >= len(series):
         raise ValueError("El inicio de la evaluación queda fuera del histórico")
     end = len(series) if max_days is None else min(len(series), start + max(max_days, 1))
     if _day(series[start]).positions is not None:
-        return _simulate_positions(series, start, end, rules)
+        return _simulate_positions(series, start, end, rules, start_event)
     balance = rules.initial_balance
     peak = 0.0
     pauses = []
@@ -144,7 +146,7 @@ def simulate_evaluation(
     return GrowthAttempt(False, reason, start, end, end - start, balance, peak, len(pauses), tuple(pauses))
 
 
-def _simulate_positions(series, start: int, end: int, rules: HyperGrowthRules) -> GrowthAttempt:
+def _simulate_positions(series, start: int, end: int, rules: HyperGrowthRules, start_event: int) -> GrowthAttempt:
     book = PositionBook(rules.initial_balance)
     pauses = []
     peak = 0.0
@@ -152,7 +154,9 @@ def _simulate_positions(series, start: int, end: int, rules: HyperGrowthRules) -
     for cursor in range(start, end):
         days = cursor - start + 1
         may_pass = days >= rules.minimum_days
-        event, highest = book.trade_day(series[cursor].positions, rules, may_pass)
+        offset = start_event if cursor == start else 0
+        events = series[cursor].positions
+        event, highest, consumed = book.trade_day(events[offset:], rules, may_pass)
         peak = max(peak, _progress(highest, rules))
         if event == 'stop_out':
             reason = event
@@ -165,6 +169,7 @@ def _simulate_positions(series, start: int, end: int, rules: HyperGrowthRules) -
     return GrowthAttempt(
         reason == 'passed', reason, start, cursor + 1, days, book.balance,
         peak, len(pauses), tuple(pauses), book.rejections, book.peak_margin, book.minimum_free,
+        offset + consumed,
     )
 
 

@@ -30,6 +30,7 @@ class BudgetAttempt:
 class MonthlyCampaign:
     attempts: tuple[BudgetAttempt, ...]
     spent_by_month: dict[str, float]
+    unfunded_days: tuple[int, ...] = ()
 
     @property
     def completed(self) -> int:
@@ -78,21 +79,40 @@ def simulate_monthly_campaign(
     series: Sequence[float | GrowthDay], days: Sequence[str], rules: HyperGrowthRules,
     bankroll_eur: float, fee_eur: float,
 ) -> MonthlyCampaign:
-    """Compra pruebas consecutivas sin superar el presupuesto de su mes de inicio."""
+    """Compra pruebas consecutivas y reutiliza el día sólo desde una apertura nueva."""
     if len(series) != len(days):
         raise ValueError("La serie Hyper Growth y su calendario no tienen la misma longitud")
     attempts: list[BudgetAttempt] = []
     spent: dict[str, float] = defaultdict(float)
-    cursor = 0
+    unfunded = []
+    cursor = event = 0
+    positions = bool(series and isinstance(series[0], GrowthDay) and series[0].positions is not None)
     while cursor < len(series):
         month = days[cursor][:7]
         if fee_eur <= 0 or spent[month] + fee_eur > bankroll_eur + 1e-9:
-            cursor = _next_month(days, cursor)
+            next_month = _next_month(days, cursor)
+            unfunded.extend(range(cursor, next_month))
+            cursor, event = next_month, 0
             continue
-        result = simulate_evaluation(series, cursor, rules)
+        if positions:
+            openings = series[cursor].positions
+            start_event = next((i for i in range(event, len(openings)) if openings[i].opening), None)
+            if start_event is None:
+                cursor, event = cursor + 1, 0
+                continue
+            # Retain the complete first timestamp, including its observed closes.
+            first = openings[start_event].time
+            while start_event > event and openings[start_event - 1].time == first:
+                start_event -= 1
+        else:
+            start_event = 0
+        result = simulate_evaluation(series, cursor, rules, start_event=start_event)
         attempts.append(BudgetAttempt(result, month, fee_eur))
         spent[month] += fee_eur
         if not result.completed:
             break
-        cursor = result.end_index
-    return MonthlyCampaign(tuple(attempts), dict(spent))
+        if result.end_event is None:
+            cursor, event = result.end_index, 0
+        else:
+            cursor, event = result.end_index - 1, result.end_event
+    return MonthlyCampaign(tuple(attempts), dict(spent), tuple(unfunded))

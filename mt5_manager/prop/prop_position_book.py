@@ -14,17 +14,15 @@ class PropPosition:
     closed: datetime
     open_price: float
     close_price: float
-    open_usd_rate: float
-    close_usd_rate: float
+    open_quote_rate: float
+    close_quote_rate: float
     quantity: float
     direction: int
     leverage: float
-    usd_base: bool
     closed_pnl: float
 
     def margin(self, price: float, rate: float, units: int) -> float:
-        notional = self.quantity if self.usd_base else self.quantity * price * rate
-        return notional * units / self.leverage
+        return self.quantity * price * rate * units / self.leverage
 
     def floating(self, price: float, rate: float, units: int) -> float:
         return (price - self.open_price) * self.direction * self.quantity * rate * units
@@ -40,8 +38,8 @@ class PositionEvent:
     @property
     def mark(self) -> tuple[float, float]:
         position = self.position
-        return ((position.open_price, position.open_usd_rate) if self.opening
-                else (position.close_price, position.close_usd_rate))
+        return ((position.open_price, position.open_quote_rate) if self.opening
+                else (position.close_price, position.close_quote_rate))
 
 
 class PositionBook:
@@ -85,30 +83,32 @@ class PositionBook:
         else:
             self.open_positions.update((event.position, event.units) for event in events)
 
-    def trade_day(self, events, rules, may_pass: bool) -> tuple[str, float]:
+    def trade_day(self, events, rules, may_pass: bool) -> tuple[str, float, int]:
         equity, _margin = self.snapshot()
         pause = max(self.balance, equity) * (1.0 - rules.daily_pause_pct / 100.0)
         peak = self.balance
+        consumed = 0
         for _when, group in groupby(events, key=lambda item: item.time):
             openings, closings = [], []
             for event in group:
                 self.marks[event.position.symbol] = event.mark
                 (openings if event.opening else closings).append(event)
+            consumed += len(openings) + len(closings)
             equity, margin = self.snapshot()
             status = self._loss_event(equity, margin, pause, rules.stop_out_level)
             if status != 'traded':
-                return status, peak
+                return status, peak, consumed
             self._close([event for event in closings if event.position in self.open_positions])
             equity, margin = self.snapshot()
             status = self._loss_event(equity, margin, pause, rules.stop_out_level)
             peak = max(peak, self.balance)
             if status != 'traded' or (may_pass and self.balance + 1e-9 >= rules.target_balance):
-                return status, peak
+                return status, peak, consumed
             self._open(openings, equity, margin)
             self._close([event for event in closings if event.position.opened == event.time])
             equity, margin = self.snapshot()
             status = self._loss_event(equity, margin, pause, rules.stop_out_level)
             peak = max(peak, self.balance)
             if status != 'traded' or (may_pass and self.balance + 1e-9 >= rules.target_balance):
-                return status, peak
-        return 'traded', peak
+                return status, peak, consumed
+        return 'traded', peak, consumed

@@ -1,4 +1,4 @@
-"""Contract specifications and observed prices for a USD Hyper Growth account."""
+"""Contract specifications and observed prices for the Prop simulation."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ class PropContract:
     volume: VolumeSpec
     quote: str
     leverage: float
-    usd_base: bool = False
+    base: str = ''
 
 
 # Published by The5ers. Index units use multiples of the published increment.
@@ -53,7 +53,7 @@ def forex_pair(symbol: str) -> bool:
 def destination_contract(symbol: str) -> PropContract | None:
     key = portfolio_symbol_key(symbol)
     if forex_pair(key):
-        return PropContract(key, VolumeSpec(100000, 0.01, 0.01), key[3:], 30, key.startswith('USD'))
+        return PropContract(key, VolumeSpec(100000, 0.01, 0.01), key[3:], 30, key[:3])
     if key in PROP_METALS:
         return PropContract(key, VolumeSpec(PROP_METALS[key], 0.01, 0.01), 'USD', 25)
     if key in PROP_INDICES:
@@ -93,8 +93,8 @@ def equivalent_volume_unit(source: VolumeSpec, target: VolumeSpec) -> tuple[floa
     return float(exposure / Fraction(str(source.contract))), float(exposure / Fraction(str(target.contract)))
 
 
-class ObservedUsdRates:
-    """Last available USD cross from OHLC report fills, with a bounded age."""
+class ObservedEuroRates:
+    """Last observed rate to EUR, using USD as a bridge when necessary."""
 
     def __init__(self, strategies, reference_trades=()):
         samples = defaultdict(dict)
@@ -109,23 +109,46 @@ class ObservedUsdRates:
 
     def _observe_trade(self, samples, trade):
         key = portfolio_symbol_key(trade.symbol)
-        if forex_pair(key) and 'USD' in (key[:3], key[3:]):
+        if forex_pair(key) and {'EUR', 'USD'}.intersection((key[:3], key[3:])):
             self._observe(samples, key, trade.open_time, trade.open_price)
             self._observe(samples, key, trade.close_time, trade.close_price)
 
     @staticmethod
     def _observe(samples, key: str, when: datetime | None, price: float | None) -> None:
         if when and price and isfinite(price) and price > 0:
-            inverse = key.startswith('USD')
-            rate = 1 / price if inverse else price
-            values = samples[key[3:] if inverse else key[:3]]
-            values[when] = max(rate, values.get(when, 0))
+            base, quote = key[:3], key[3:]
+            for pair, rate in (((base, quote), price), ((quote, base), 1 / price)):
+                values = samples[pair]
+                values[when] = max(rate, values.get(when, 0))
 
-    def at(self, currency: str, when: datetime) -> float | None:
-        if currency == 'USD':
-            return 1.0
-        stamps, values = self.samples.get(currency, ((), {}))
+    def _observed(self, source: str, target: str, when: datetime) -> float | None:
+        stamps, values = self.samples.get((source, target), ((), {}))
         index = bisect_right(stamps, when) - 1
         if index < 0 or when - stamps[index] > timedelta(days=7):
             return None
         return values[stamps[index]]
+
+    def at(self, currency: str, when: datetime) -> float | None:
+        if currency == 'EUR':
+            return 1.0
+        direct = self._observed(currency, 'EUR', when)
+        if direct is not None or currency == 'USD':
+            return direct
+        to_usd = self._observed(currency, 'USD', when)
+        usd_to_euro = self._observed('USD', 'EUR', when)
+        return to_usd * usd_to_euro if to_usd and usd_to_euro else None
+
+    def missing_references(self, currencies: set[str]) -> set[str]:
+        missing = {'USD'} if ('USD', 'EUR') not in self.samples else set()
+        return missing | {
+            currency for currency in currencies - {'EUR', 'USD'}
+            if (currency, 'EUR') not in self.samples and (currency, 'USD') not in self.samples
+        }
+
+    def quote_rate(self, contract: PropContract, price: float, when: datetime) -> float | None:
+        if contract.quote == 'EUR':
+            return 1.0
+        if contract.base in ('EUR', 'USD'):
+            base_rate = self.at(contract.base, when)
+            return base_rate / price if base_rate is not None else None
+        return self.at(contract.quote, when)

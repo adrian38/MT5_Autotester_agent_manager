@@ -159,6 +159,10 @@ input[readonly] { color: var(--lime); font-weight: 800; }
 .calendar-day { min-height: 58px; padding: 6px; border: 1px solid var(--line); border-radius: 8px; background: #101b18; }
 .calendar-day b, .calendar-day small { display: block; }
 .calendar-day small { margin-top: 4px; font-size: 9px; line-height: 1.1; }
+.calendar-day.multiple small { border-radius: 4px; padding: 2px 3px; }
+.calendar-day.multiple .passed { background: #27491d; color: #caff9c; }
+.calendar-day.multiple .failed { background: #4b2225; color: #ffaaa7; }
+.calendar-day.multiple .in-progress { background: #4a3b18; color: #ffe09c; }
 .calendar-day.no-data { opacity: .45; }
 .calendar-day.outside { visibility: hidden; }
 .table-wrap { overflow: auto; margin-top: 18px; }

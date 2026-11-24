@@ -20,24 +20,34 @@ def _empty_month(bankroll: float) -> dict[str, Any]:
     }
 
 
-def _calendar_rows(days: tuple[str, ...], attempts: tuple[BudgetAttempt, ...]) -> list[dict[str, Any]]:
-    rows = [{"date": day, "status": "no_budget"} for day in days]
+def _calendar_rows(
+    days: tuple[str, ...], attempts: tuple[BudgetAttempt, ...], unfunded_days: tuple[int, ...],
+) -> list[dict[str, Any]]:
+    unfunded = set(unfunded_days)
+    rows = [{"date": day, "status": "no_budget" if index in unfunded else "idle", "attempts": []}
+            for index, day in enumerate(days)]
     for number, funded in enumerate(attempts, 1):
         attempt = funded.result
         for index in range(attempt.start_index, attempt.end_index):
-            rows[index] = {
-                "date": days[index], "status": "in_progress",
+            rows[index]["attempts"].append({
+                "status": "in_progress",
                 "attempt": number, "started": days[attempt.start_index],
-            }
+            })
         if attempt.completed:
             finish = attempt.end_index - 1
-            rows[finish].update({
+            rows[finish]["attempts"][-1].update({
                 "status": "passed" if attempt.passed else "failed",
                 "days": (date.fromisoformat(days[finish])
                          - date.fromisoformat(days[attempt.start_index])).days + 1,
                 "reason": attempt.reason,
                 "peak_progress_pct": attempt.peak_progress_pct,
             })
+    for row in rows:
+        entries = row["attempts"]
+        if entries:
+            row.update(entries[-1])
+        if len(entries) > 1:
+            row["status"] = "multiple"
     return rows
 
 
@@ -87,7 +97,7 @@ def attempt_analysis(
     )
     monthly = _monthly_rows(axis.days, campaign.attempts, campaign.spent_by_month, bankroll)
     return {
-        "calendar": _calendar_rows(axis.days, campaign.attempts),
+        "calendar": _calendar_rows(axis.days, campaign.attempts, campaign.unfunded_days),
         "monthly": monthly,
         "execution": {
             "margin_rejections": campaign.margin_rejections,
@@ -101,6 +111,6 @@ def attempt_analysis(
         },
         "bankroll": {
             "monthly_eur": bankroll, "fee_per_attempt_eur": fee,
-            "max_attempts_per_month": int(bankroll // fee) if fee > 0 else 0,
+            "max_attempts_per_month": int((bankroll + 1e-9) / fee) if fee > 0 else 0,
         },
     }

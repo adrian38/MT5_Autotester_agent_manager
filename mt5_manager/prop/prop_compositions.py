@@ -11,7 +11,7 @@ from ..common import load_json, save_json, utc_now
 def composition_snapshot(result: dict[str, Any] | None) -> dict[str, Any] | None:
     if not result or not result.get("allocations"):
         return None
-    fields = ("name", "revision", "result_schema_version", "profile", "settings", "axis",
+    fields = ("name", "revision", "result_schema_version", "valuation_currency", "profile", "settings", "axis",
               "phase_one", "evaluation", "allocations", "excluded_keys")
     snapshot = {field: result[field] for field in fields if field in result}
     encoded = json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode("utf-8")

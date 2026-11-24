@@ -86,7 +86,7 @@ function profileDetail() {
   const selected = selectedProfile();
   if (!selected) return;
   const phases = selected.phases.map(item => `<strong>${esc(item.name)}</strong>: objetivo ${number(item.target_pct, 0)}%, pausa diaria ${number(item.daily_loss_pct, 0)}%, máximo ${number(item.max_loss_pct, 0)}%`).join("<br>");
-  document.querySelector("#profile-detail").innerHTML = `${phases}<br><strong>Apalancamiento:</strong> ${esc(leverageText(selected))} · <strong>Tamaños:</strong> ${selected.account_sizes.map(item => `$${number(item, 0)}`).join(" · ")}${selected.note ? `<br>${esc(selected.note)}` : ""}<br><a href="${esc(selected.source_url)}" target="_blank" rel="noopener">Reglas oficiales ↗</a>`;
+  document.querySelector("#profile-detail").innerHTML = `${phases}<br><strong>Apalancamiento:</strong> ${esc(leverageText(selected))}${selected.note ? `<br>${esc(selected.note)}` : ""}<br><a href="${esc(selected.source_url)}" target="_blank" rel="noopener">Reglas oficiales ↗</a>`;
 }
 
 function renderProfileContract(capital, selectedFamilies) {
@@ -94,7 +94,7 @@ function renderProfileContract(capital, selectedFamilies) {
   if (!selected) return;
   const sizes = selected.account_sizes.map(Number);
   const chosenCapital = sizes.includes(Number(capital)) ? Number(capital) : sizes[0];
-  document.querySelector("#capital").innerHTML = sizes.map(item => `<option value="${item}">$${number(item, 0)}</option>`).join("");
+  document.querySelector("#capital").innerHTML = sizes.map(item => `<option value="${item}">${number(item, 0)} €</option>`).join("");
   document.querySelector("#capital").value = String(chosenCapital);
   document.querySelector("#account_leverage").value = leverageText(selected);
   const allowed = new Set(selected.symbol_families);
@@ -309,9 +309,13 @@ function renderPhaseThree(result) {
   const portfolio = phase.portfolio || {};
   document.querySelector("#phase-three-metrics").innerHTML = metric("Probabilidad histórica", `${number(evaluation.pass_rate, 1)}%`)
     + metric("Trials aprobados", `${evaluation.passed || 0}/${evaluation.trials || 0}`)
-    + metric("Neto 2020–2024", `$${number(portfolio.net_profit)}`)
-    + metric("DD máximo cerrado", `$${number(portfolio.max_drawdown)}`);
+    + metric("Neto 2020–2024", amount(portfolio.net_profit, phase.valuation_currency || "USD"))
+    + metric("DD máximo cerrado", amount(portfolio.max_drawdown, phase.valuation_currency || "USD"));
   window.PortfolioCurveView.renderCurve(document.querySelector("#phase-three-chart"), portfolio.curve || []);
+}
+
+function amount(value, currency, digits=2) {
+  return value == null ? "—" : `${number(value, digits)}${currency ? ` ${currency}` : ""}`;
 }
 
 function renderPortfolioContract(result) {
@@ -319,14 +323,15 @@ function renderPortfolioContract(result) {
   if (!portfolio) return;
   const profile = result.profile;
   const settings = result.settings;
+  const currency = result.valuation_currency || "USD";
   const contract = document.querySelector("#result-contract");
   contract.hidden = false;
   contract.innerHTML = metric("Bankroll mensual", `€${number(settings.bankroll_eur)}`)
     + metric("Coste por prueba", `€${number(settings.evaluation_fee_eur)}`)
-    + metric("Capital de la prueba", `$${number(settings.capital, 0)}`)
+    + metric("Capital simulado", amount(settings.capital, currency, 0))
     + metric("Apalancamiento por familia", leverageText(profile))
-    + metric("Margen pico de la campaña", result.evaluation.peak_margin == null ? "—" : `$${number(result.evaluation.peak_margin)}`)
-    + metric("Margen libre mínimo observado", result.evaluation.minimum_free_margin == null ? "—" : `$${number(result.evaluation.minimum_free_margin)}`);
+    + metric("Margen pico de la campaña", amount(result.evaluation.peak_margin, currency))
+    + metric("Margen libre mínimo observado", amount(result.evaluation.minimum_free_margin, currency));
 }
 
 function renderSearchComparison(result) {
@@ -350,6 +355,19 @@ function renderPoolOutcome(result) {
   }).join("");
 }
 
+function calendarDay(row, day) {
+  const labels = {passed:"Pasada", failed:"Fallada", in_progress:"En curso", no_budget:"Bankroll agotado", idle:"Sin prueba"};
+  const status = row?.status || "no-data";
+  const entries = row?.attempts || (row?.attempt ? [row] : []);
+  const detail = entries.length ? entries.map(item => `Prueba ${item.attempt} · ${labels[item.status]}`).join("\n")
+    : labels[status] || "Sin mercado";
+  const counts = status === "multiple" ? ["passed", "failed", "in_progress"].map(outcome => {
+    const count = entries.filter(item => item.status === outcome).length;
+    return count ? `<small class="${outcome.replace("_", "-")}">${count} ${labels[outcome].toLowerCase()}${count > 1 && outcome !== "in_progress" ? "s" : ""}</small>` : "";
+  }).join("") : `<small>${esc(labels[status] || "")}</small>`;
+  return `<span class="calendar-day ${esc(status.replace("_", "-"))}" title="${esc(detail)}"><b>${day}</b>${counts}</span>`;
+}
+
 function renderAttemptMonth(month) {
   const target = document.querySelector("#attempt-calendar");
   const [year, monthNumber] = month.split("-").map(Number);
@@ -360,11 +378,7 @@ function renderAttemptMonth(month) {
   const cells = Array.from({length:offset}, () => '<span class="calendar-day outside"></span>');
   for (let day = 1; day <= count; day += 1) {
     const date = `${year}-${String(monthNumber).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    const row = byDate.get(date);
-    const status = row?.status || "no-data";
-    const labels = {passed:"Pasada", failed:"Fallada", in_progress:"Portafolio en curso", no_budget:"Bankroll agotado", "no-data":"Sin mercado"};
-    const detail = row?.attempt ? ` · prueba ${row.attempt}` : "";
-    cells.push(`<span class="calendar-day ${esc(status.replace("_", "-"))}" title="${esc(labels[status] + detail)}"><b>${day}</b><small>${esc(row ? labels[status] : "")}</small></span>`);
+    cells.push(calendarDay(byDate.get(date), day));
   }
   target.innerHTML = cells.join("");
 }
@@ -380,6 +394,7 @@ function renderAttemptAnalysis(result) {
   document.querySelector("#attempt-metrics").innerHTML =
     metric("Bankroll que se reinicia cada mes", `€${number(bankroll.monthly_eur)}`)
     + metric("Máximo mensual por presupuesto", bankroll.max_attempts_per_month || 0)
+    + metric("Pruebas iniciadas", totals.started || 0)
     + metric("Pruebas pasadas", totals.passed || 0)
     + metric("Pruebas falladas", totals.failed || 0)
     + metric("Pausas diarias · no son fallo", totals.daily_pauses || 0);
@@ -388,9 +403,10 @@ function renderAttemptAnalysis(result) {
   ).join("");
   const months = [...new Set(attemptCalendar.map(item => item.date.slice(0, 7)))];
   const selector = document.querySelector("#attempt-month");
+  const selectedMonth = selector.value;
   selector.innerHTML = months.map(month => `<option value="${month}">${month}</option>`).join("");
   if (months.length) {
-    selector.value = months[months.length - 1];
+    selector.value = months.includes(selectedMonth) ? selectedMonth : months[months.length - 1];
     renderAttemptMonth(selector.value);
   }
 }
@@ -407,7 +423,7 @@ function renderResult(result) {
   document.querySelector("#warnings").innerHTML = (result.warnings || []).map(item => `<div class="warning">${esc(item)}</div>`).join("");
   renderPortfolioContract(result);
   renderPoolOutcome(result);
-  window.PropSearchBase.render(result.search_base, true);
+  window.PropSearchBase.render(result.search_base, true, result.valuation_currency || "USD");
   renderSearchComparison(result);
   renderAttemptAnalysis(result);
   renderPhaseTwo(result);

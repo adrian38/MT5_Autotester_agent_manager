@@ -20,7 +20,7 @@ window.PropComposition = (() => {
     });
   }
 
-  function allocationRow(item, selectable) {
+  function allocationRow(item, selectable, currency) {
     const path = item.set_path || item.set_id || "";
     const name = path.split(/[\\/]/).pop() || "Set sin nombre";
     const symbol = item.prop_symbol || item.symbol || "—";
@@ -40,23 +40,24 @@ window.PropComposition = (() => {
         <div><span>The5ers</span><strong>${lot(item.lot)}</strong></div>
         <div><span>Origen</span><span>${lot(item.source_lot)}</span></div>
       </td>
-      <td role="cell" class="composition-money" data-label="Neto cerrado USD">${money(item.net_profit_contribution)}</td>
-      <td role="cell" class="composition-money" data-label="DD cerrado USD">${money(item.standalone_valley_dd)}</td>
-      <td role="cell" class="composition-money" data-label="Margen pico USD">${money(item.margin_required)}</td>
+      <td role="cell" class="composition-money" data-label="Neto cerrado ${currency}">${money(item.net_profit_contribution)}</td>
+      <td role="cell" class="composition-money" data-label="DD cerrado ${currency}">${money(item.standalone_valley_dd)}</td>
+      <td role="cell" class="composition-money" data-label="Margen pico ${currency}">${money(item.margin_required)}</td>
     </tr>`;
   }
 
-  function table(allocations, selectable) {
+  function table(allocations, selectable, valuationCurrency) {
+    const currency = esc(valuationCurrency || "USD");
     const exclude = selectable ? '<th scope="col" role="columnheader" class="composition-exclude">Excluir</th>' : "";
     const columns = [
       ["Estrategia", "composition-strategy"], ["Bróker", "composition-broker"],
-      ["Lotes", "composition-lots"], ["Neto cerrado USD", "composition-money"],
-      ["DD cerrado USD", "composition-money"], ["Margen pico USD", "composition-money"],
+      ["Lotes", "composition-lots"], [`Neto cerrado ${currency}`, "composition-money"],
+      [`DD cerrado ${currency}`, "composition-money"], [`Margen pico ${currency}`, "composition-money"],
     ];
     const headings = columns.map(([name, css]) => `<th scope="col" role="columnheader" class="${css}">${name}</th>`).join("");
     return `<table class="composition-table" role="table" aria-label="Estrategias de la composición">
       <thead role="rowgroup"><tr role="row">${exclude}${headings}</tr></thead>
-      <tbody role="rowgroup">${allocations.map(item => allocationRow(item, selectable)).join("")}</tbody>
+      <tbody role="rowgroup">${allocations.map(item => allocationRow(item, selectable, currency)).join("")}</tbody>
     </table>`;
   }
 
@@ -99,7 +100,7 @@ window.PropComposition = (() => {
     if (id !== currentId) {
       currentId = id;
       const rows = state.result?.allocations || [];
-      element("allocation-table").innerHTML = id ? table(rows, true) : "";
+      element("allocation-table").innerHTML = id ? table(rows, true, state.result.valuation_currency) : "";
       const brokers = new Set(rows.map(item => item.origin)).size;
       element("composition-info").textContent = id
         ? `${rows.length} ${rows.length === 1 ? "estrategia" : "estrategias"} · ${brokers} ${brokers === 1 ? "bróker" : "brókeres"} · Revisión ${state.result.revision || 1}`
@@ -137,7 +138,7 @@ window.PropComposition = (() => {
     try {
       const saved = await request(`composition?id=${encodeURIComponent(id)}`, {cache:"no-store"});
       element("composition-dialog-info").textContent = savedLabel(saved);
-      element("composition-dialog-table").innerHTML = table(saved.allocations, false);
+      element("composition-dialog-table").innerHTML = table(saved.allocations, false, saved.valuation_currency);
       const dialog = element("composition-dialog");
       if (!dialog.open) dialog.showModal();
     } catch (error) { toast(error.message, true); }

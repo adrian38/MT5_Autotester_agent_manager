@@ -421,6 +421,7 @@ def result_payload(
         100.0 / result.evaluation.pass_rate if result.evaluation.pass_rate else None
     )
     payload = {
+        "valuation_currency": "EUR",
         "evaluation": evaluation,
         "proposals_by_size": list(result.proposals_by_size),
         "allocations": [

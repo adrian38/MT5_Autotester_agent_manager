@@ -10,7 +10,7 @@ from typing import Sequence
 
 from ..experiment.experiment_lab import LabAxis, valley_dd
 from .prop_experiment_engine import PropStrategy
-from .prop_execution import ObservedUsdRates, equivalent_volume_unit
+from .prop_execution import ObservedEuroRates, equivalent_volume_unit
 from .prop_position_book import PositionEvent, PropPosition
 from .the5ers_hyper_growth_engine import GrowthClose
 
@@ -101,7 +101,7 @@ def _replay_strategy(item: PropStrategy, positions: dict[str, int]) -> PropStrat
 
 def replay_window(
     strategies: Sequence[PropStrategy], axis: LabAxis, start: str, end: str, *,
-    rates: ObservedUsdRates | None = None, discards: Counter | None = None,
+    rates: ObservedEuroRates | None = None, discards: Counter | None = None,
 ) -> tuple[list[PropStrategy], LabAxis, list[str]]:
     """Exige las mismas fechas cubiertas antes de comparar composiciones."""
     calendar = _calendar_axis(axis.days, start, end)
@@ -140,20 +140,15 @@ def _prop_position(item, trade, lots, rates, close_in_window):
     direction = {'buy': 1, 'sell': -1}.get(trade.side.casefold())
     if not direction:
         return None, 'dirección de la operación ausente'
-    if contract.usd_base:
-        open_rate, close_rate = (1 / price for price in prices)
-    elif contract.quote == 'USD':
-        open_rate = close_rate = 1.0
-    else:
-        open_rate = rates.at(contract.quote, trade.open_time)
-        close_rate = rates.at(contract.quote, trade.close_time) if close_in_window else open_rate
+    open_rate = rates.quote_rate(contract, prices[0], trade.open_time)
+    close_rate = rates.quote_rate(contract, prices[1], trade.close_time) if close_in_window else open_rate
     report_rate = rates.at(trade.currency, trade.close_time) if close_in_window else 1.0
     if not all((open_rate, close_rate, report_rate)):
-        return None, 'conversión USD sin cotización OHLC reciente'
+        return None, 'valoración en EUR sin cotización OHLC reciente'
     return PropPosition(
         contract.symbol, trade.open_time, trade.close_time, *prices,
         open_rate, close_rate, target_lot * contract.volume.contract,
-        direction, contract.leverage, contract.usd_base,
+        direction, contract.leverage,
         trade.net_profit * source_lot / trade.volume * report_rate if close_in_window else 0.0,
     ), ''
 
@@ -162,8 +157,8 @@ def _observed_peak_margin(events):
     margin = peak = 0.0
     for event in events:
         position = event.position
-        bound = max(position.margin(position.open_price, position.open_usd_rate, 1),
-                    position.margin(position.close_price, position.close_usd_rate, 1))
+        bound = max(position.margin(position.open_price, position.open_quote_rate, 1),
+                    position.margin(position.close_price, position.close_quote_rate, 1))
         margin += bound if event.opening else -bound
         peak = max(peak, margin)
     return peak

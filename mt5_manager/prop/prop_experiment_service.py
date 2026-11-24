@@ -22,7 +22,7 @@ from .prop_experiment_pool import load_fx_reference, load_inventory, load_pool
 from .prop_experiment_reporting import attempt_analysis
 from .prop_profiles import EXPERIMENT_PROFILE_IDS, profile, profiles_payload
 from .prop_experiment_validation import NodeRequest, validate_portfolio
-from .prop_execution import ObservedUsdRates
+from .prop_execution import ObservedEuroRates
 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -33,12 +33,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "include_manual_portfolios": True, "active_portfolios_only": False,
     "include_grids": False, "auto_continue": False,
 }
-RESULT_SCHEMA_VERSION = 10
+RESULT_SCHEMA_VERSION = 11
 
 REPLAY_WARNING = (
-    "Reproducción OHLC en USD con contratos The5ers y precios observados en aperturas y cierres. "
+    "Simulación OHLC en EUR con contratos The5ers y costes de los informes de origen. "
     "Entre observaciones, incluido el rollover, se usa el último precio disponible. "
-    "El histórico conserva los costes de origen convertidos a USD. La ejecución con precios, "
+    "La ejecución con precios, "
     "costes y equity tick a tick de The5ers queda pendiente de comprobar."
 )
 
@@ -155,7 +155,7 @@ class PropExperimentCoordinator:
         loaded_result = self._load_optional(self.result_path)
         self.result = (
             loaded_result
-            if (loaded_result or {}).get("result_schema_version") == RESULT_SCHEMA_VERSION
+            if (loaded_result or {}).get("result_schema_version") in (10, RESULT_SCHEMA_VERSION)
             else None
         )
         self.stored = self._load_optional(self.settings_path) or {}
@@ -342,13 +342,13 @@ class PropExperimentCoordinator:
         executable_keys = {item.lab.key for item in executable}
         rejected = Counter((item.lab.origin_node, item.source_kind, 'Grid deshabilitado')
                            for item in pool if item.lab.key not in executable_keys)
-        rates = ObservedUsdRates(pool)
-        required = {item.prop_contract.quote for item in executable if item.prop_contract and not item.prop_contract.usd_base}
+        rates = ObservedEuroRates(pool)
+        required = {item.prop_contract.quote for item in executable if item.prop_contract}
         required.update(trade.currency for item in executable for trade in item.closed_trades if trade.currency)
-        missing = required - rates.samples.keys() - {'USD'}
+        missing = rates.missing_references(required)
         if missing:
             reference = load_fx_reference(self.source_factory, pool_settings, self._checkpoint, missing)
-            rates = ObservedUsdRates(pool, reference)
+            rates = ObservedEuroRates(pool, reference)
         return executable, axis, warnings + credibility_warnings, origins, rates, rejected
 
     def _phase_one_pool(self, settings, excluded=frozenset()):
@@ -428,7 +428,9 @@ class PropExperimentCoordinator:
         updated.update({
             **{key: value for key, value in (self.result or {}).items()
                if key not in {"allocations", "evaluation", "portfolio", "attempt_analysis",
-                              "proposals_by_size", "search_base", "axis", "finished_at"}},
+                              "proposals_by_size", "search_base", "axis", "finished_at",
+                              "valuation_currency"}},
+            "result_schema_version": RESULT_SCHEMA_VERSION,
             "revision": int((self.result or {}).get("revision") or 1) + 1,
             "previous_revision": previous,
             "origins": origins, "warnings": warnings + [REPLAY_WARNING],

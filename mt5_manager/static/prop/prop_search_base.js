@@ -22,9 +22,9 @@
       + ` style="--tone:var(${tone});--amount:${amount}%">${value == null ? "—" : label}</button></td>`;
   }
 
-  function render(base, hasResult) {
+  function render(base, hasResult, currency) {
     byId("prop-search-base").hidden = !hasResult;
-    const nextSignature = JSON.stringify(base ?? null);
+    const nextSignature = JSON.stringify([base, currency]);
     if (nextSignature === signature) return;
     signature = nextSignature;
     current = base;
@@ -32,7 +32,7 @@
     byId("prop-base-content").hidden = !rows.length;
     byId("prop-base-count").textContent = rows.length ? `${rows.length} estrategias` : "";
     byId("prop-base-note").textContent = rows.length
-      ? `Pearson del PnL diario OHLC en USD durante ${base.days} días cubiertos. Los días sin cierres cuentan como cero.${base.required_count ? " Las aprobaciones de cada base incluyen las estrategias obligatorias." : ""}`
+      ? `Pearson del PnL diario OHLC en ${currency} durante ${base.days} días cubiertos. Los días sin cierres cuentan como cero.${base.required_count ? " Las aprobaciones de cada base incluyen las estrategias obligatorias." : ""}`
       : "Esta ejecución se guardó antes de incorporar la base de búsqueda.";
     if (!rows.length) return;
     byId("prop-base-rows").innerHTML = rows.map((entry, index) => `<tr><th scope="row">${index + 1}</th>`
