@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..common import load_json, safe_float, save_json, utc_now
+from .prop_compositions import PropCompositionArchive, composition_snapshot
 from .prop_experiment_engine import (
     SearchResult, credible_pool, evaluate, result_payload, search,
 )
@@ -142,6 +143,7 @@ class PropExperimentCoordinator:
         self.nodes = {str(node.get("id")): node for node in nodes}
         self.settings_path = Path(settings_path)
         self.result_path = self.settings_path.with_name("prop_experiment_last_result.json")
+        self.compositions = PropCompositionArchive(self.settings_path.with_name("prop_experiment_compositions.json"))
         self.source_factory = source_factory
         self.active_members_factory = active_members_factory
         self.symbol_settings_factory = symbol_settings_factory
@@ -214,7 +216,18 @@ class PropExperimentCoordinator:
 
     def state(self) -> dict[str, Any]:
         with self.lock:
-            return {"job": dict(self.job), "result": self.result}
+            snapshot = composition_snapshot(self.result)
+            return {"job": dict(self.job), "result": self.result,
+                    "composition_id": snapshot["id"] if snapshot else None}
+
+    def save_composition(self, composition_id: str) -> dict[str, Any]:
+        with self.lock:
+            snapshot = composition_snapshot(self.result)
+            if not snapshot:
+                raise ValueError("Primero hay que construir un Portafolio Prop en la fase 1")
+            if composition_id != snapshot["id"]:
+                raise ValueError("La composición cambió. Revisa el resultado actual antes de guardarlo")
+            return self.compositions.save(snapshot)
 
     def log(self, lines: int = 400) -> dict[str, Any]:
         with self.lock:
@@ -262,12 +275,14 @@ class PropExperimentCoordinator:
         return self.state()
 
     def _start_result_operation(self, operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-        if not self.result or not self.result.get("allocations"):
-            raise ValueError("Primero hay que construir un Portafolio Prop en la fase 1")
         phase = 2 if operation in {"repair", "validate_mt5"} else 3
         with self.lock:
+            if not self.result or not self.result.get("allocations"):
+                raise ValueError("Primero hay que construir un Portafolio Prop en la fase 1")
             if self.job.get("status") == "running":
                 raise ValueError("Ya hay una fase del Portafolio Prop en curso")
+            if payload.get("composition_id") and payload["composition_id"] != composition_snapshot(self.result)["id"]:
+                raise ValueError("La composición cambió. Revisa las estrategias antes de excluirlas")
             self.cancel = threading.Event()
             self.log_lines.clear()
             settings = dict(self.result["settings"])
@@ -289,7 +304,9 @@ class PropExperimentCoordinator:
         excluded = [str(item) for item in raw if str(item)] if isinstance(raw, list) else []
         if not excluded:
             raise ValueError("Marca al menos una estrategia que excluir")
-        return self._start_result_operation("repair", {"excluded_keys": excluded})
+        return self._start_result_operation("repair", {
+            "excluded_keys": excluded, "composition_id": payload.get("composition_id"),
+        })
 
     def validate_mt5(self) -> dict[str, Any]:
         """Fase 2: ejecuta el Portafolio Prop en OHLC y Every Tick."""

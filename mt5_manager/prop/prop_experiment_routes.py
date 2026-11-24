@@ -10,7 +10,10 @@ from ..common import safe_int
 from ..static_files import STATIC_DIR, static_path  # noqa: F401  (STATIC_DIR es API)
 
 
-STATIC_FILES = {"prop_experiment.html", "prop_experiment.css", "prop_experiment.js", "prop_search_base.js"}
+STATIC_FILES = {
+    "prop_experiment.html", "prop_experiment.css", "prop_experiment.js",
+    "prop_search_base.js", "prop_composition.js",
+}
 API_PREFIX = "/api/prop-experiment/"
 
 
@@ -33,6 +36,14 @@ def handle_get(handler: Any, parsed: urllib.parse.ParseResult) -> bool:
         if action == "pool-inventory":
             handler._send_json(200, coordinator.pool_inventory())
             return True
+        if action == "compositions":
+            handler._send_json(200, {"compositions": coordinator.compositions.summaries()})
+            return True
+        if action == "composition":
+            query = urllib.parse.parse_qs(parsed.query)
+            saved = coordinator.compositions.get(query.get("id", [""])[0])
+            handler._send_json(200 if saved else 404, saved or {"error": "Composición no encontrada"})
+            return True
         if action == "log":
             query = urllib.parse.parse_qs(parsed.query)
             lines = safe_int(query.get("lines", [400])[0], 400, minimum=1, maximum=4000)
@@ -48,7 +59,7 @@ def handle_post(handler: Any, parsed: urllib.parse.ParseResult) -> bool:
     if not parsed.path.startswith(API_PREFIX):
         return False
     action = parsed.path[len(API_PREFIX):]
-    if action not in {"settings", "run", "validate-mt5", "repair", "validate-history", "stop"}:
+    if action not in {"settings", "run", "validate-mt5", "repair", "validate-history", "stop", "save-composition"}:
         return False
     coordinator = handler.server.prop_experiments
     try:
@@ -59,6 +70,8 @@ def handle_post(handler: Any, parsed: urllib.parse.ParseResult) -> bool:
             handler._send_json(200, coordinator.start(body))
         elif action == "repair":
             handler._send_json(200, coordinator.repair(body))
+        elif action == "save-composition":
+            handler._send_json(200, coordinator.save_composition(str(body.get("composition_id") or "")))
         elif action == "validate-mt5":
             handler._send_json(200, coordinator.validate_mt5())
         elif action == "validate-history":

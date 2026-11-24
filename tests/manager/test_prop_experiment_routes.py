@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 import threading
 import unittest
@@ -196,6 +197,64 @@ class PropExperimentRouteTests(unittest.TestCase):
             coordinator.symbol_settings_factory, coordinator.node_request,
         )
         self.assertIsNone(loaded.result)
+
+    def _one_member_result(self) -> dict:
+        return {
+            "kind": "prop_portfolio", "revision": 2, "settings": {"capital": 5000.0},
+            "evaluation": {"passed": 3, "median_days": 6.0},
+            "allocations": [{"key": "ICTRADING:a.set", "lot": 0.1}],
+        }
+
+    def test_the_composition_has_its_own_panel_outside_the_results(self) -> None:
+        status, page = self.request("/prop_experiment.html")
+        self.assertEqual(status, 200)
+        panel = page.split('<section id="prop-composition"')[1].split("</section>")[0]
+        self.assertIn('id="allocation-table"', panel)
+        self.assertIn('id="save-composition"', panel)
+        self.assertIn('id="repair-prop"', panel)
+        self.assertEqual(page.count('id="allocation-table"'), 1)
+        self.assertLess(page.index('id="prop-composition"'), page.index("Resultados de la simulación"))
+        self.assertEqual(self.request("/prop_composition.js")[0], 200)
+
+    def test_every_class_of_the_composition_is_styled(self) -> None:
+        """El panel nació con su marcado y sin una sola regla: ilegible."""
+        sheet = self.request("/prop_experiment.css")[1]
+        attributes: set[str] = set()
+        for source in ("/prop_experiment.html", "/prop_composition.js"):
+            attributes.update(re.findall(r'class="([^"${}]*composition[^"${}]*)"', self.request(source)[1]))
+        names = {name for value in attributes for name in value.split() if "composition" in name}
+        self.assertIn("composition-money", names)
+        self.assertEqual(sorted(name for name in names if f".{name}" not in sheet), [])
+
+    def test_a_saved_composition_survives_the_next_phase_one(self) -> None:
+        coordinator = self.manager.prop_experiments
+        coordinator.result = self._one_member_result()
+        composition_id = self.request("/api/prop-experiment/state")[1]["composition_id"]
+        status, _ = self.request("/api/prop-experiment/save-composition", {"composition_id": composition_id})
+        self.assertEqual(status, 200)
+        summaries = self.request("/api/prop-experiment/compositions")[1]["compositions"]
+        self.assertEqual(
+            [(item["id"], item["members"], item["passed"]) for item in summaries],
+            [(composition_id, 1, 3)],
+        )
+        coordinator.result = {**self._one_member_result(), "revision": 3, "allocations": []}
+        saved = self.request(f"/api/prop-experiment/composition?id={composition_id}")[1]
+        self.assertEqual(saved["revision"], 2)
+        self.assertEqual(saved["allocations"], self._one_member_result()["allocations"])
+        self.assertEqual(self.request("/api/prop-experiment/composition?id=nada")[0], 404)
+
+    def test_a_changed_composition_is_neither_saved_nor_repaired(self) -> None:
+        coordinator = self.manager.prop_experiments
+        self.assertEqual(self.request("/api/prop-experiment/save-composition", {"composition_id": ""})[0], 400)
+        coordinator.result = self._one_member_result()
+        stale = "0" * 64
+        status, payload = self.request("/api/prop-experiment/save-composition", {"composition_id": stale})
+        self.assertEqual((status, "La composición cambió" in payload["error"]), (400, True))
+        status, payload = self.request("/api/prop-experiment/repair", {
+            "excluded_keys": ["ICTRADING:a.set"], "composition_id": stale,
+        })
+        self.assertEqual((status, "La composición cambió" in payload["error"]), (400, True))
+        self.assertEqual(self.request("/api/prop-experiment/compositions")[1]["compositions"], [])
 
 
 if __name__ == "__main__":

@@ -238,8 +238,6 @@ function clearResult() {
   document.querySelector("#metrics").className = "metrics empty";
   document.querySelector("#metrics").textContent = "Aún no hay un resultado.";
   document.querySelector("#result-contract").hidden = true;
-  document.querySelector("#allocation-table").hidden = true;
-  document.querySelector("#allocations").innerHTML = "";
   document.querySelector("#warnings").innerHTML = "";
   document.querySelector("#phase-two-comparison").hidden = true;
   document.querySelector("#phase-three-result").hidden = true;
@@ -399,7 +397,6 @@ function renderAttemptAnalysis(result) {
 
 function renderResult(result) {
   if (!result) return clearResult();
-  document.querySelector("#allocation-table").hidden = false;
   const evaluation = result.evaluation;
   document.querySelector("#metrics").className = "metrics";
   document.querySelector("#metrics").innerHTML = metric("Aprobadas de las resueltas", `${evaluation.passed}/${evaluation.trials}`)
@@ -408,10 +405,6 @@ function renderResult(result) {
     + metric("Pool", `${result.pool.candidates} generadas aceptadas FT6M + ${result.pool.seeds} seeds UBS aceptadas FT6M + ${result.pool.manual || 0} manuales sin fases`);
   document.querySelector("#axis").textContent = `${result.axis.from} → ${result.axis.to}`;
   document.querySelector("#warnings").innerHTML = (result.warnings || []).map(item => `<div class="warning">${esc(item)}</div>`).join("");
-  const labels = {seed:"Seed 6M", manual:"Manual", candidate:"Candidata"};
-  const excluded = new Set(result.excluded_keys || []);
-  document.querySelector("#allocations").innerHTML = result.allocations.map(item => `<tr><td><input type="checkbox" data-prop-exclude="${esc(item.key)}" ${excluded.has(item.key) ? "checked disabled" : ""} aria-label="Excluir ${esc(item.set_id)}"></td><td>${esc(item.origin)}</td><td><span class="badge ${esc(item.source_kind)}">${esc(labels[item.source_kind] || item.source_kind)}</span></td><td title="${esc(item.set_path)}">${esc(shortSetName(item.set_id))}</td><td title="Origen ${esc(item.symbol)}"><strong>${esc(item.prop_symbol || item.symbol)}</strong></td><td>${esc(item.timeframe || "—")}</td><td><strong>${number(item.lot, 2)}</strong></td><td>${number(item.source_lot ?? item.lot, 2)}</td><td>${number(item.net_profit_contribution)}</td><td>${number(item.standalone_valley_dd)}</td><td>${number(item.margin_required)}</td></tr>`).join("");
-  syncRepairButton();
   renderPortfolioContract(result);
   renderPoolOutcome(result);
   window.PropSearchBase.render(result.search_base, true);
@@ -437,11 +430,6 @@ function renderPhases(result, job) {
   document.querySelector("#run").disabled = running;
   document.querySelector("#run-phase-two").disabled = running || phaseOne?.status !== "completed";
   document.querySelector("#run-phase-three").disabled = running || !["completed", "repaired"].includes(phaseTwo?.status);
-}
-
-function syncRepairButton() {
-  const selected = document.querySelectorAll("[data-prop-exclude]:checked:not(:disabled)").length;
-  document.querySelector("#repair-prop").disabled = !selected;
 }
 
 function monitorStage(job) {
@@ -473,6 +461,7 @@ function renderState(state) {
   const running = state.job.status === "running";
   document.querySelector("#status").textContent = state.job.error || state.job.progress || state.job.status;
   document.querySelector("#stop").disabled = !running;
+  window.PropComposition.render(state);
   renderResult(state.result);
   renderPhases(state.result, state.job);
   renderMonitor(state.job);
@@ -499,20 +488,17 @@ async function post(action, body={}) {
   } catch (error) { document.querySelector("#status").textContent = error.message; }
 }
 
+window.PropComposition.init({esc, number, request, renderState, toast});
 document.querySelector("#profile_id").addEventListener("change", () => renderProfileContract(document.querySelector("#capital").value, checkedFamilies()));
 document.querySelector("#reload").addEventListener("click", () => {
   document.querySelector("#refresh-state").textContent = "Actualizando…";
   request("config").then(renderConfig).catch(error => markLoaded(error.message));
+  window.PropComposition.refreshArchive();
 });
 document.querySelector("#save").addEventListener("click", () => post("settings", formSettings()));
 document.querySelector("#run").addEventListener("click", () => post("run", formSettings()));
 document.querySelector("#run-phase-two").addEventListener("click", () => post("validate-mt5"));
 document.querySelector("#run-phase-three").addEventListener("click", () => post("validate-history"));
-document.querySelector("#repair-prop").addEventListener("click", () => {
-  const excluded_keys = [...document.querySelectorAll("[data-prop-exclude]:checked:not(:disabled)")].map(item => item.dataset.propExclude);
-  post("repair", {excluded_keys});
-});
-document.querySelector("#allocations").addEventListener("change", syncRepairButton);
 document.querySelector("#phase-two-strategy").addEventListener("change", event => renderPhaseTwoStrategy(Number(event.target.value)));
 document.querySelector("#attempt-month").addEventListener("change", event => renderAttemptMonth(event.target.value));
 document.querySelector("#stop").addEventListener("click", () => post("stop"));

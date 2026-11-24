@@ -70,9 +70,55 @@ input[readonly] { color: var(--lime); font-weight: 800; }
 .phase-grid button { grid-column: 1/-1; border: 0; border-radius: 9px; padding: 10px; background: var(--lime); color: #06100c; font-weight: 800; cursor: pointer; }
 .phase-grid button:disabled { opacity: .35; cursor: not-allowed; }
 .phase-number { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid #5c8c3e; border-radius: 50%; color: var(--lime); font-weight: 900; }
-.repair-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; color: var(--muted); font-size: 12px; }
-.repair-bar button { border: 0; border-radius: 9px; padding: 10px 14px; background: #263b35; color: var(--ink); font-weight: 800; }
-.repair-bar button:disabled { opacity: .35; }
+.prop-composition { display: grid; gap: 14px; }
+.composition-heading { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 14px; }
+.composition-heading h2 { font-size: 22px; }
+.composition-info { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+.composition-info.composition-error { color: var(--red); }
+#composition-status:not(.composition-error) { color: var(--lime); }
+.composition-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.composition-actions button { padding: 11px 16px; border-radius: 9px; background: var(--lime); color: #06100c; font-weight: 800; }
+.composition-actions button.secondary { background: #263b35; color: var(--ink); border: 0; }
+.composition-actions button:disabled { opacity: .35; cursor: not-allowed; }
+.composition-table-area { overflow: auto; max-height: min(62vh, 640px); border: 1px solid var(--line); border-radius: 14px; background: #08110f; }
+.composition-table { font-size: 13px; }
+.composition-table th { position: sticky; top: 0; z-index: 1; background: #12221d; padding: 12px 14px; white-space: nowrap; letter-spacing: .06em; }
+.composition-table td { padding: 13px 14px; vertical-align: top; }
+.composition-table tbody tr:last-child td { border-bottom: 0; }
+.composition-table tbody tr:hover td { background: #0d1a16; }
+.composition-table tbody tr:has(input:checked) td { background: #261517; }
+.composition-table .composition-exclude { width: 1%; white-space: nowrap; }
+.composition-exclude label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.composition-exclude label span { display: none; }
+.composition-exclude input { width: 17px; height: 17px; accent-color: var(--red); }
+.composition-exclude input:disabled { cursor: not-allowed; opacity: .45; }
+.composition-table td.composition-strategy { min-width: 260px; }
+.composition-strategy > div:first-child { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.composition-strategy strong { font-size: 15px; }
+.composition-strategy > div:first-child span { border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; color: var(--muted); font-size: 11px; }
+.composition-set-name { margin-top: 5px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.composition-path { margin-top: 6px; }
+.composition-path summary { color: var(--muted); font-size: 11px; cursor: pointer; }
+.composition-path code { display: block; margin-top: 5px; color: #b9d3c8; font: 11px/1.5 Consolas, monospace; overflow-wrap: anywhere; }
+.composition-table .composition-broker { white-space: nowrap; }
+.composition-broker small { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
+.composition-table .composition-lots { white-space: nowrap; }
+.composition-lots div { display: flex; justify-content: space-between; gap: 14px; }
+.composition-lots div + div { margin-top: 4px; }
+.composition-lots span { color: var(--muted); font-size: 11px; }
+.composition-lots strong, .composition-lots div + div span:last-child { color: var(--lime); font-size: 13px; font-variant-numeric: tabular-nums; }
+.composition-lots div + div span:last-child { color: var(--ink); }
+.composition-table .composition-money { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.composition-archive { border: 1px solid var(--line); border-radius: 12px; background: #08110f; padding: 13px 15px; }
+.composition-archive summary { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; cursor: pointer; }
+.composition-archive summary span { color: var(--lime); font-weight: 800; }
+.composition-archive ul { display: grid; gap: 8px; margin: 13px 0 0; padding: 0; list-style: none; }
+.composition-archive li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 10px; }
+.composition-archive li small { display: block; margin-top: 4px; color: var(--muted); }
+.composition-archive li button, .composition-archive li a { padding: 8px 12px; font-size: 12px; }
+.composition-archive li a { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); font-weight: 700; text-decoration: none; }
+.composition-dialog { width: min(1040px, calc(100% - 32px)); }
+.composition-dialog .composition-table-area { max-height: min(66vh, 620px); }
 .phase-two-comparison { margin-top: 20px; padding: 18px; border: 1px solid #5c8c3e; border-radius: 14px; background: #08110f; }
 .comparison-head { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 16px; }
 .comparison-head h3 { margin: 0; color: var(--ink); font-size: 20px; text-transform: none; letter-spacing: 0; }
@@ -166,6 +212,17 @@ footer { padding: 26px 0 40px; color: var(--muted); font-size: 12px; }
   .sources-section { grid-column: auto; }
   .nodes { grid-template-columns: 1fr; }
   .metrics { grid-template-columns: repeat(2, 1fr); }
+  .composition-heading, .composition-actions { display: grid; }
+  .composition-table-area { max-height: none; border: 0; background: transparent; }
+  .composition-table thead { display: none; }
+  .composition-table, .composition-table tbody, .composition-table tr, .composition-table td { display: block; }
+  .composition-table tr { margin-bottom: 10px; border: 1px solid var(--line); border-radius: 12px; background: #08110f; }
+  .composition-table td { padding: 11px 14px; border-bottom: 0; }
+  .composition-table td + td { border-top: 1px solid #1b2b26; }
+  .composition-table .composition-exclude { width: auto; }
+  .composition-exclude label span { display: inline; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  .composition-table .composition-money { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }
+  .composition-money::before { content: attr(data-label); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
 }
 
 @media (max-width: 520px) {

@@ -56,7 +56,7 @@
         </section>
       </div>
       <div class="actions">
-        <button id="save" class="secondary">Guardar</button>
+        <button id="save" class="secondary">Guardar ajustes</button>
         <button id="stop" class="danger" disabled>Detener</button>
       </div>
     </section>
@@ -70,8 +70,25 @@
       </div>
     </section>
 
+    <section id="prop-composition" class="panel prop-composition" aria-labelledby="prop-composition-title" hidden>
+      <div class="composition-heading">
+        <div><h2 id="prop-composition-title">Composición de Fase 1</h2><p id="composition-info" class="composition-info"></p></div>
+        <div id="composition-actions" class="composition-actions" hidden>
+          <button id="save-composition" type="button">Guardar composición</button>
+          <button id="repair-prop" type="button" class="secondary" aria-describedby="composition-selection">Excluir y arreglar</button>
+        </div>
+      </div>
+      <p id="composition-status" class="composition-info" role="status" hidden></p>
+      <div id="allocation-table" class="composition-table-area" hidden></div>
+      <p id="composition-selection" class="composition-info" hidden></p>
+      <details id="composition-archive" class="composition-archive" hidden>
+        <summary>Composiciones guardadas <span id="composition-archive-count"></span></summary>
+        <ul id="composition-archive-list"></ul>
+      </details>
+    </section>
+
     <section class="panel results">
-      <div class="section-title"><h2>Portafolio Prop</h2><span id="axis"></span></div>
+      <div class="section-title"><h2>Resultados de la simulación</h2><span id="axis"></span></div>
       <section id="calculation-monitor" class="calculation-monitor prop-monitor" aria-live="polite">
         <div class="monitor-head"><div><p class="eyebrow">PROGRESO DEL CÁLCULO</p><h3 id="monitor-title">Esperando una búsqueda</h3></div><span id="stage-count">0 / 5</span></div>
         <div id="stage-list" class="stage-list">
@@ -122,10 +139,6 @@
         <div id="phase-three-metrics" class="metrics"></div>
         <div id="phase-three-chart" class="audit-analysis-chart"></div>
       </section>
-      <div id="allocation-table" class="table-wrap universe-table-wrap portfolio-members-wrap" hidden><table class="universe-table portfolio-members">
-        <thead><tr><th>Excluir</th><th>Origen</th><th>Tipo</th><th>Estrategia</th><th>Símbolo</th><th>TF</th><th>Lote The5ers</th><th>Lote origen</th><th>Neto cerrado USD</th><th>DD cerrado USD</th><th>Pico individual USD</th></tr></thead>
-        <tbody id="allocations"></tbody>
-      </table><div class="repair-bar"><span>Las exclusiones pertenecen a este Portafolio Prop; no cambian la memoria UBS del broker.</span><button id="repair-prop" class="secondary" disabled>Excluir y arreglar composición</button></div></div>
     </section>
 
     <section class="panel methodology">
@@ -143,6 +156,13 @@
     </section>
   </main>
   <footer>La campaña estima la equity y el margen libre en los precios observados de apertura y cierre del OHLC.</footer>
+  <dialog id="composition-dialog" class="composition-dialog" aria-labelledby="composition-dialog-title">
+    <div class="dialog-head">
+      <div><h2 id="composition-dialog-title">Composición guardada</h2><p id="composition-dialog-info" class="composition-info"></p></div>
+      <form method="dialog"><button type="submit" class="secondary">Cerrar</button></form>
+    </div>
+    <div id="composition-dialog-table" class="composition-table-area"></div>
+  </dialog>
   <dialog id="prop-symbol-dialog" class="log-dialog symbol-manager-dialog">
     <div class="dialog-head"><div><p class="eyebrow">GESTIÓN POR SÍMBOLO Y BROKER</p><h2 id="prop-symbol-title">Sets del símbolo</h2><p id="prop-symbol-summary" class="subtitle"></p></div><button type="button" class="icon-button" data-prop-symbol-close aria-label="Cerrar">×</button></div>
     <fieldset><legend>Disponibilidad del símbolo</legend><label class="symbol-disable-option"><input id="prop-symbol-disabled" type="checkbox"> Deshabilitar en generaciones UBS y en Experimenta Prop para este broker</label></fieldset>
@@ -153,6 +173,7 @@
   <script src="/portfolio_curve_view.js"></script>
   <script src="/exclusion_reason.js"></script>
   <script src="/prop_search_base.js"></script>
+  <script src="/prop_composition.js"></script>
   <script src="/prop_experiment.js"></script>
   <script src="/manager_restart.js"></script>
   <script src="/main_nav.js"></script>
