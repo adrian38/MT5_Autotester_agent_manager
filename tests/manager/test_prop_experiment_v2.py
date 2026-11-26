@@ -15,7 +15,7 @@ from mt5_manager.experiment.experiment_lab import LabAxis
 from mt5_manager.experiment.experiment_seed_sets import single_report_strategy
 from mt5_manager.prop.prop_experiment_cache import PropEvidenceCache
 from mt5_manager.prop.prop_experiment_engine import evaluate, executable_pool, search
-from mt5_manager.prop.prop_experiment_engine_v2 import _growth_builder, search_v2
+from mt5_manager.prop.prop_experiment_engine_v2 import AdaptiveCompositionSearch, _growth_builder, search_v2
 from mt5_manager.prop.prop_position_book import PositionEvent, PropPosition
 from mt5_manager.prop.prop_profiles import profile
 from portfolio_manager.ubs_portfolio import ClosedTrade, PeriodReport
@@ -104,6 +104,22 @@ class PropV2SearchTests(unittest.TestCase):
         before = search(items, axis, program, settings)
         after = search_v2(items, axis, program, settings)
         self.assertGreaterEqual(after.evaluation.score, before.evaluation.score)
+
+    def test_restarts_end_when_kicks_stop_measuring_new_compositions(self):
+        days = tuple((date(2025, 1, 1) + timedelta(days=i)).isoformat() for i in range(32))
+        axis = LabAxis(days, (0,) * 31 + (1,), 2)
+        rng = Random(33)
+        labs = [replace(_strategy(str(i), 10, tuple(rng.randrange(-180, 270, 20) for _ in days)),
+                        margin_per_unit=rng.choice((300, 500, 750, 1000))) for i in range(8)]
+        items = executable_pool(labs, set(), set())
+        messages = []
+        # On the real pool the budget was never reached and the kicks spun all night on known ground.
+        with patch.object(AdaptiveCompositionSearch, 'RESTART_BUDGET', 10 ** 9), \
+                patch.object(AdaptiveCompositionSearch, 'RESTART_KICKS', 10 ** 4):
+            search_v2(items, axis, profile('the5ers-growth'), {'capital': 5000}, messages.append)
+        restarts = [message for message in messages if message.startswith('Reinicios V2 · ')]
+        self.assertTrue(restarts)
+        self.assertLess(len(restarts), 100)
 
     def test_lazy_position_days_match_the_original_campaign(self):
         start = datetime(2025, 1, 31, 8)

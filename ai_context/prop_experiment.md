@@ -146,6 +146,57 @@ que el orden por aprobaciones descarta. Cambiar ese orden es una decisión de
 producto, no del motor. V2 compara entre 4.000 y 11.000 composiciones frente a
 las 500-3.000 de V1 y tarda en proporción.
 
+#### Reinicios sobre el pool real (2026-11-26)
+
+Con el pool real entero las cuentas de arriba no se cumplen. Son 3.007
+estrategias de ICTrading, AXI y RoboForex en la ventana de fase 1 (360 días).
+Sobre él, V1 mide 377.551 composiciones en 53 minutos, y las rondas de V2
+añadían unas 5.000 alrededor de su resultado sin mejorarlo. Por eso V2 termina
+con reinicios (`_restart`):
+
+- quita 2 o 3 miembros al azar, con semilla fija, a la composición en curso;
+- vuelve a subir con los mismos vecinos de V2;
+- acepta el resultado si tiene **al menos** las mismas aprobaciones, porque el
+  empate permite avanzar por la meseta hacia otro vecindario.
+
+Presupuesto: 30.000 composiciones nuevas, 300 reinicios como mucho y fin tras 25
+seguidos que no midan nada nuevo. Ese último corte no es opcional: sin él, dos
+mediciones del banco se quedaron toda la noche girando sobre composiciones ya
+conocidas, sin llegar nunca al presupuesto.
+
+Banco del 2026-11-25/26, con el mismo pool y la misma configuración
+(aprobaciones / mediana de días):
+
+| Punto de partida | V1 | V2 sin reinicios | V2 con reinicios |
+| --- | --- | --- | --- |
+| Sin resultado previo | 46 / 2,5 | 50 / 6 | 54 / 6 (semilla 1), 55 / 5 (semilla 2) |
+| Composición guardada de 52 / 6 | — | 52 / 6 | 55 / 5, tasa 75 % frente al 63 % |
+
+Los reinicios suman unos 10 minutos a la hora de V1. En pools sintéticos
+pequeños no ganan nada, porque V1 ya los recorre casi enteros, así que la
+prueba fija sólo que la fase termina.
+
+**La composición previa se arrastra.** `PropExperimentCoordinator._incumbent`
+pasa la composición del resultado anterior como punto de partida si la
+configuración no cambió, y con V2 también cuando el anterior era V1. Las
+mejoras se acumulan de una ejecución a otra: los 52 / 6 que veía el usuario no
+salen de una ejecución limpia, que con V1 da 46 / 2,5. Al comparar motores hay
+que fijarse en el punto de partida de cada uno.
+
+El banco no está en el repositorio. Se montó dentro del contenedor con
+`PYTHONPATH=/workspace/manager-repo`:
+
+- se guarda el pool con `_phase_one_pool` y la configuración de
+  `/app/runtime/manager.docker.json`, no con la de `/app/config/manager.json`,
+  que no trae las rutas `/data/...` y deja el pool vacío;
+- se guardan `scores` de V1;
+- cada variante arranca con esas puntuaciones precargadas y con
+  `CompositionSearch.run` sustituido por una función que devuelve la
+  composición base.
+
+Así cada prueba tarda minutos, no una hora. Desde Git Bash, `docker exec -w`
+necesita `MSYS_NO_PATHCONV=1`.
+
 El simulador exige cobertura de la ventana con las fechas declaradas de las
 pasadas que construyeron la serie. Un día laborable cubierto sin cierres
 consume tiempo y conserva el saldo. Si falta un tramo de evidencia, la

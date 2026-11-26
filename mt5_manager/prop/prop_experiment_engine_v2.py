@@ -5,6 +5,7 @@ from __future__ import annotations
 from functools import lru_cache, partial
 from heapq import nlargest, nsmallest
 from itertools import chain
+from random import Random
 
 from .prop_experiment_engine import (
     _merge_position_events, _scale_events, evaluate, growth_series, search,
@@ -51,6 +52,11 @@ class AdaptiveCompositionSearch(CompositionSearch):
     MIN_ROUNDS = 6
     ROUNDS = 12
     PATIENCE = 2
+    # Restarts: about ten minutes on the real 3,000-strategy pool, where they took 46-52 approvals to 54-55.
+    RESTART_BUDGET = 30000
+    RESTART_KICKS = 300
+    RESTART_IDLE = 25
+    RESTART_SEED = 1
 
     def __init__(self, *args, series, symbols, **kwargs):
         super().__init__(*args, **kwargs)
@@ -163,6 +169,43 @@ class AdaptiveCompositionSearch(CompositionSearch):
                     break
                 current = revised
 
+    def _climb(self, current, ranked, limit):
+        while len(self.scores) < limit:
+            best = max(chain((current,), self._neighbors(current, ranked)), key=self.rank)
+            if best == current:
+                break
+            current = best
+        return current
+
+    def _kick(self, current, rng):
+        removable = sorted(current.keys() - self.required)
+        if len(removable) < 2:
+            return current
+        removed = set(rng.sample(removable, min(len(removable) - 1, rng.choice((2, 3)))))
+        return {key: units for key, units in current.items() if key not in removed}
+
+    def _restart(self, best, ranked):
+        """Drop two or three members of the walk's composition and climb again from what is left.
+
+        Everything climbed is kept in self.scores, so the caller still returns the best measured.
+        """
+        rng = Random(self.RESTART_SEED)
+        limit = len(self.scores) + self.RESTART_BUDGET
+        self.stage = 'Reinicios V2'
+        current, idle = best, 0
+        for kick in range(self.RESTART_KICKS):
+            if len(self.scores) >= limit or idle >= self.RESTART_IDLE:
+                break
+            if self.progress and kick % 10 == 0:
+                self.progress(f'{self.stage} · {kick} de hasta {self.RESTART_KICKS}')
+            measured = len(self.scores)
+            candidate = self._climb(self._kick(current, rng), ranked, limit)
+            # Kicks that measure nothing new only revisit known compositions: a run of them ends the phase.
+            idle = idle + 1 if len(self.scores) == measured else 0
+            # Equal approvals are accepted so the walk can drift along the plateau to a new neighbourhood.
+            if self.measure(candidate).passed >= self.measure(current).passed:
+                current = candidate
+
     def run(self, incumbent=None):
         # V1 is the floor: its walk shares self.scores, so V2 never returns less.
         baseline, _ = super().run(incumbent)
@@ -192,6 +235,7 @@ class AdaptiveCompositionSearch(CompositionSearch):
             # Each round adds at most one member, so large portfolios need the rounds that keep paying.
             stale = 0 if leader > previous else stale + 1
         self._polish()
+        self._restart(dict(max(self.scores, key=lambda signature: self.scores[signature].score)), ranked)
         best = max(self.scores, key=lambda signature: self.scores[signature].score)
         return dict(best), self.scores[best]
 
