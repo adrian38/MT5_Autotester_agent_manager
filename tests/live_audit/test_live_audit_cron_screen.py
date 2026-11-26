@@ -6,10 +6,11 @@ citas, sólo los ficheros servidos y lo que dicen.
 """
 from __future__ import annotations
 
+import re
 import sys
 import unittest
 from pathlib import Path
-from tools.package_layout import static_source
+from tools.package_layout import static_matching, static_source
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -212,6 +213,41 @@ class CronScreenTests(unittest.TestCase):
         self.assertIn("uso${blocked.length === 1 ? '' : 's'} no se ejecutará", self.script)
         self.assertIn("/live_audit.html?node=${encodeURIComponent(row.node_id)}", self.script)
         self.assertIn("Configurar</a>", self.script)
+
+
+def _bare_rules(sheet: str, element: str) -> list[str]:
+    """Las declaraciones de cada regla cuyo selector incluye `element` a secas."""
+    sheet = re.sub(r"/\*.*?\*/", "", sheet, flags=re.S)
+    found = []
+    for selectors, body in re.findall(r"([^{}]+)\{([^{}]*)\}", sheet):
+        names = [part.strip() for part in selectors.split(",")]
+        if element in names:
+            found.append(body)
+    return found
+
+
+class BellPanelLayoutTests(unittest.TestCase):
+    """La campana es un `<aside>` con su `header` y su `footer` dentro.
+
+    Cualquier hoja de una pantalla que la monta llega también a ellos. El
+    2026-11-26 la de Experimenta Prop decía `header, main, footer { width:
+    min(1400px, 94vw) }`: dentro de un panel de 430 px, el «×» y «Vaciar»
+    quedaban 800 px a la derecha, fuera de la vista.
+    """
+
+    def test_no_page_sheet_sizes_a_bare_header_or_footer(self) -> None:
+        offenders = []
+        for page in static_matching("*.html"):
+            html = page.read_text(encoding="utf-8")
+            if "/live_audit_schedule.css" not in html:
+                continue
+            for href in re.findall(r'<link[^>]+href="/([^"]+\.css)"', html):
+                for element in ("header", "footer"):
+                    for body in _bare_rules(static_source(href), element):
+                        if re.search(r"(^|;|\s)(min-|max-)?width\s*:|(^|;|\s)margin\s*:", body):
+                            offenders.append(f"{page.name} → {href}: {element} {{{body.strip()}}}")
+        self.assertGreater(len(static_matching("*.html")), 10)
+        self.assertEqual(offenders, [])
 
 
 if __name__ == "__main__":
